@@ -1,17 +1,21 @@
 import { createHash } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { z as z3 } from 'zod';
 import { z } from 'zod/v4';
 import {
   DEFAULT_LLM_SETTINGS,
   LLM_PROVIDERS,
   llmSettingsSchema,
   type LlmProviderId,
+  type LlmProviderStatus,
   type LlmSettings,
   type LlmSettingsDto,
   type LlmSlot,
   type LlmSlotConfig,
   type LlmTestResult,
+  type SaveLlmCredentialRequest,
 } from '@aftersell/shared';
+import { SecretBox } from '../common/secret-box';
 import { env } from '../config/env';
 import { DB, type Database } from '../db/db.module';
 import { llmCall } from '../db/schema';
@@ -21,21 +25,44 @@ import { OpenAiCompatibleProvider } from './openai-compatible.provider';
 import type { ChatTurn, ImageInput, LLMProvider, LlmResult } from './provider';
 
 const SETTINGS_KEY = 'llm.settings';
+const CREDENTIALS_KEY = 'llm.credentials';
 
 /** 槽位所选服务没有配置 API key */
 export class LlmNotConfiguredError extends Error {}
 /** 模型输出两次都没通过 schema 校验 */
 export class LlmOutputError extends Error {}
 
-export function providerFromEnv(id: LlmProviderId): LLMProvider | null {
+export interface ProviderCredential {
+  apiKey: string;
+  baseUrl: string | null;
+}
+
+/** 设置页保存的 key：AES-256-GCM 密文（密钥 MAIL_SECRET_KEY），不存明文 */
+const storedCredentialsSchema = z3.record(
+  z3.enum(LLM_PROVIDERS),
+  z3.object({ cipher: z3.string().nullable(), baseUrl: z3.string().nullable() }),
+);
+type StoredCredentials = Partial<Record<LlmProviderId, { cipher: string | null; baseUrl: string | null }>>;
+
+function defaultBaseUrl(id: LlmProviderId): string | null {
   const e = env();
+  return id === 'deepseek' ? e.DEEPSEEK_BASE_URL : id === 'dashscope' ? e.DASHSCOPE_BASE_URL : null;
+}
+
+function envKey(id: LlmProviderId): string | undefined {
+  const e = env();
+  return id === 'deepseek' ? e.DEEPSEEK_API_KEY : id === 'dashscope' ? e.DASHSCOPE_API_KEY : e.ANTHROPIC_API_KEY;
+}
+
+export function createProvider(id: LlmProviderId, cred: ProviderCredential | null): LLMProvider | null {
+  if (!cred) return null;
   switch (id) {
     case 'deepseek':
-      return e.DEEPSEEK_API_KEY ? new OpenAiCompatibleProvider(e.DEEPSEEK_API_KEY, e.DEEPSEEK_BASE_URL) : null;
+      return new OpenAiCompatibleProvider(cred.apiKey, cred.baseUrl ?? env().DEEPSEEK_BASE_URL, { reasoningEffort: true });
     case 'dashscope':
-      return e.DASHSCOPE_API_KEY ? new OpenAiCompatibleProvider(e.DASHSCOPE_API_KEY, e.DASHSCOPE_BASE_URL) : null;
+      return new OpenAiCompatibleProvider(cred.apiKey, cred.baseUrl ?? env().DASHSCOPE_BASE_URL, { reasoningEffort: false });
     case 'anthropic':
-      return e.ANTHROPIC_API_KEY ? new AnthropicProvider(e.ANTHROPIC_API_KEY) : null;
+      return new AnthropicProvider(cred.apiKey, cred.baseUrl ?? undefined);
   }
 }
 
@@ -45,9 +72,9 @@ export function stripJsonFence(text: string): string {
   return match ? match[1] : text.trim();
 }
 
-/** Claude 默认开启自适应思考，思考也占 max_tokens，给足余量 */
-function budget(config: LlmSlotConfig, maxTokens: number): number {
-  return config.provider === 'anthropic' ? Math.max(maxTokens, 8000) : maxTokens;
+/** 现用模型默认开启思考，思考可能占用 max_tokens，给足余量（按实际用量计费） */
+function budget(maxTokens: number): number {
+  return Math.max(maxTokens, 8000);
 }
 
 function describeIssues(error: z.ZodError): string {
@@ -59,20 +86,60 @@ interface CallMeta {
 }
 
 @Injectable()
-export class LlmService {
+export class LlmService implements OnModuleInit {
   private readonly logger = new Logger(LlmService.name);
+  private readonly box = new SecretBox(env().MAIL_SECRET_KEY);
   private readonly providers = new Map<LlmProviderId, LLMProvider>();
+  private readonly status = new Map<LlmProviderId, LlmProviderStatus>();
   private readonly listeners: (() => Promise<void>)[] = [];
 
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly settingsStore: SettingsService,
-    /** 测试注入用；生产按 .env 创建 */
-    @Inject('LLM_PROVIDER_FACTORY') private readonly factory: (id: LlmProviderId) => LLMProvider | null = providerFromEnv,
-  ) {
+    /** 测试注入用 */
+    @Inject('LLM_PROVIDER_FACTORY')
+    private readonly factory: (id: LlmProviderId, cred: ProviderCredential | null) => LLMProvider | null = createProvider,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.reloadProviders();
+  }
+
+  private async storedCredentials(): Promise<StoredCredentials> {
+    return (await this.settingsStore.get(CREDENTIALS_KEY, storedCredentialsSchema, {})) as StoredCredentials;
+  }
+
+  /** 设置页填写的 key 优先，其次服务器 .env */
+  async reloadProviders(): Promise<void> {
+    const stored = await this.storedCredentials();
     for (const id of LLM_PROVIDERS) {
-      const provider = this.factory(id);
+      const saved = stored[id];
+      let apiKey: string | null = null;
+      let source: LlmProviderStatus['source'] = null;
+      if (saved?.cipher) {
+        try {
+          apiKey = this.box.decrypt(saved.cipher);
+          source = 'settings';
+        } catch {
+          this.logger.error(`${id} 的 API key 无法解密（MAIL_SECRET_KEY 变更过？），请在设置页重新填写`);
+        }
+      }
+      if (!apiKey && envKey(id)) {
+        apiKey = envKey(id) ?? null;
+        source = 'env';
+      }
+      const baseUrl = saved?.baseUrl ?? null;
+      const provider = this.factory(id, apiKey ? { apiKey, baseUrl } : null);
       if (provider) this.providers.set(id, provider);
+      else this.providers.delete(id);
+      this.status.set(id, {
+        id,
+        configured: Boolean(provider),
+        source: provider ? source : null,
+        keyHint: provider && apiKey ? apiKey.slice(-4) : null,
+        baseUrl,
+        defaultBaseUrl: defaultBaseUrl(id),
+      });
     }
   }
 
@@ -84,19 +151,56 @@ export class LlmService {
   async settingsDto(): Promise<LlmSettingsDto> {
     return {
       settings: await this.settings(),
-      providers: LLM_PROVIDERS.map((id) => ({ id, configured: this.providers.has(id) })),
+      providers: LLM_PROVIDERS.map(
+        (id) =>
+          this.status.get(id) ?? {
+            id,
+            configured: this.providers.has(id),
+            source: null,
+            keyHint: null,
+            baseUrl: null,
+            defaultBaseUrl: defaultBaseUrl(id),
+          },
+      ),
     };
   }
 
-  /** 配置保存后通知（处理队列据此补跑未分类的邮件） */
+  /** 配置或 key 保存后通知（处理队列据此补跑未分类的邮件） */
   onSettingsChanged(listener: () => Promise<void>): void {
     this.listeners.push(listener);
+  }
+
+  private async notify(): Promise<void> {
+    for (const listener of this.listeners) await listener().catch((e: unknown) => this.logger.warn(String(e)));
   }
 
   async saveSettings(actorId: string, settings: LlmSettings): Promise<LlmSettingsDto> {
     await this.settingsStore.set(SETTINGS_KEY, settings, actorId);
     this.logger.log(`模型配置已更新 by=${actorId}`);
-    for (const listener of this.listeners) await listener().catch((e: unknown) => this.logger.warn(String(e)));
+    await this.notify();
+    return this.settingsDto();
+  }
+
+  async saveCredential(actorId: string, id: LlmProviderId, req: SaveLlmCredentialRequest): Promise<LlmSettingsDto> {
+    const stored = await this.storedCredentials();
+    const prev = stored[id] ?? { cipher: null, baseUrl: null };
+    stored[id] = {
+      cipher: req.apiKey !== undefined ? this.box.encrypt(req.apiKey) : prev.cipher,
+      baseUrl: req.baseUrl !== undefined ? req.baseUrl : prev.baseUrl,
+    };
+    await this.settingsStore.set(CREDENTIALS_KEY, stored, actorId);
+    this.logger.log(`模型服务 ${id} 的凭据已更新 by=${actorId} keyChanged=${req.apiKey !== undefined}`);
+    await this.reloadProviders();
+    await this.notify();
+    return this.settingsDto();
+  }
+
+  async clearCredential(actorId: string, id: LlmProviderId): Promise<LlmSettingsDto> {
+    const stored = await this.storedCredentials();
+    delete stored[id];
+    await this.settingsStore.set(CREDENTIALS_KEY, stored, actorId);
+    this.logger.log(`模型服务 ${id} 的凭据已删除 by=${actorId}`);
+    await this.reloadProviders();
     return this.settingsDto();
   }
 
@@ -163,14 +267,17 @@ export class LlmService {
     let lastProblem = '';
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const result = await this.invoke(slot, config, meta, { system: req.system, messages, model: config.model }, () =>
-        provider.extractJson({ model: config.model, maxTokens: budget(config, req.maxTokens), effort: config.effort, system: req.system, messages, jsonSchema }),
+        provider.extractJson({ model: config.model, maxTokens: budget(req.maxTokens), effort: config.effort, system: req.system, messages, jsonSchema }),
       );
       let parsed: unknown;
       try {
         parsed = JSON.parse(stripJsonFence(result.text));
       } catch {
-        lastProblem = '输出不是合法的 JSON';
-        messages.push({ role: 'assistant', content: result.text }, { role: 'user', content: `你的输出不是合法的 JSON。请只输出符合 schema 的 JSON 对象。` });
+        lastProblem = result.text.trim() ? '输出不是合法的 JSON' : '输出为空';
+        messages.push(
+          { role: 'assistant', content: result.text || '(empty)' },
+          { role: 'user', content: '你的输出不是合法的 JSON。请只输出符合 schema 的 JSON 对象。' },
+        );
         continue;
       }
       const checked = req.schema.safeParse(parsed);
@@ -192,7 +299,7 @@ export class LlmService {
     const { config, provider } = await this.resolve(slot);
     const input = { prompt: req.prompt, images: req.images.map((i) => createHash('sha256').update(i.data).digest('hex')) };
     const result = await this.invoke(slot, config, meta, input, () =>
-      provider.vision({ model: config.model, maxTokens: budget(config, req.maxTokens), effort: config.effort, prompt: req.prompt, images: req.images }),
+      provider.vision({ model: config.model, maxTokens: budget(req.maxTokens), effort: config.effort, prompt: req.prompt, images: req.images }),
     );
     return { text: result.text.trim(), config };
   }
@@ -205,8 +312,8 @@ export class LlmService {
       const result = await this.invoke(slot, config, {}, { test: true }, () =>
         provider.generate({
           model: config.model,
-          maxTokens: budget(config, 20),
-          effort: config.effort,
+          maxTokens: budget(20),
+          effort: 'low',
           system: 'Reply with the single word OK.',
           messages: [{ role: 'user', content: 'ping' }],
         }),

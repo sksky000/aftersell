@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod/v4';
 import { DEFAULT_LLM_SETTINGS, type LlmProviderId } from '@aftersell/shared';
 import { LlmOutputError, LlmService, stripJsonFence } from '../llm/llm.service';
@@ -181,12 +181,24 @@ function assemblePdf(objects: string[]): Buffer {
 }
 
 describe('LlmService.extract', () => {
+  beforeAll(() => {
+    // LlmService 读取 env()（加密 key 用 MAIL_SECRET_KEY），测试里给一套假值
+    Object.assign(process.env, {
+      DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+      REDIS_URL: 'redis://localhost:6379',
+      JWT_SECRET: 'x'.repeat(40),
+      MAIL_SECRET_KEY: Buffer.alloc(32, 1).toString('base64'),
+    });
+  });
   function service(replies: string[]) {
     const extractJson = vi.fn(async () => ({ text: replies.shift() ?? '', usage: { inputTokens: 10, outputTokens: 5 } }));
     const provider = { extractJson, generate: vi.fn(), vision: vi.fn() } as unknown as LLMProvider;
     const inserted: unknown[] = [];
     const db = { insert: () => ({ values: async (v: unknown) => void inserted.push(v) }) };
-    const settings = { get: async () => DEFAULT_LLM_SETTINGS, set: async () => undefined };
+    const settings = {
+      get: async (key: string, _schema: unknown, fallback: unknown) => (key === 'llm.settings' ? DEFAULT_LLM_SETTINGS : fallback),
+      set: async () => undefined,
+    };
     const llm = new LlmService(db as never, settings as never, (id: LlmProviderId) => (id === 'deepseek' ? provider : null));
     return { llm, extractJson, inserted };
   }
@@ -194,6 +206,7 @@ describe('LlmService.extract', () => {
 
   it('feeds validation errors back once and accepts the corrected output', async () => {
     const { llm, extractJson, inserted } = service(['{"category":"zzz","confidence":1}', '```json\n{"category":"a","confidence":90}\n```']);
+    await llm.onModuleInit();
     const { data } = await llm.extract('classify', { system: 's', user: 'u', schema, maxTokens: 100 }, { emailId: null });
     expect(data).toEqual({ category: 'a', confidence: 90 });
     expect(extractJson).toHaveBeenCalledTimes(2);
@@ -204,11 +217,35 @@ describe('LlmService.extract', () => {
 
   it('gives up after two invalid outputs', async () => {
     const { llm } = service(['not json', '{"category":"a"}']);
+    await llm.onModuleInit();
     await expect(llm.extract('classify', { system: 's', user: 'u', schema, maxTokens: 100 })).rejects.toBeInstanceOf(LlmOutputError);
+  });
+
+  it('stores API keys entered in settings encrypted, and never returns them', async () => {
+    const store = new Map<string, unknown>();
+    const settings = {
+      get: async (key: string, _schema: unknown, fallback: unknown) => store.get(key) ?? fallback,
+      set: async (key: string, value: unknown) => void store.set(key, value),
+    };
+    const seen: (string | null)[] = [];
+    const llm = new LlmService({} as never, settings as never, (id, cred) => {
+      if (id === 'dashscope') seen.push(cred?.apiKey ?? null);
+      return cred ? ({} as LLMProvider) : null;
+    });
+    await llm.onModuleInit();
+    const dto = await llm.saveCredential('admin', 'dashscope', { apiKey: 'sk-secret-value-1234' });
+    expect(JSON.stringify(store.get('llm.credentials'))).not.toContain('sk-secret-value-1234');
+    expect(JSON.stringify(dto)).not.toContain('sk-secret-value-1234');
+    expect(dto.providers.find((p) => p.id === 'dashscope')).toMatchObject({ configured: true, source: 'settings', keyHint: '1234' });
+    expect(seen.at(-1)).toBe('sk-secret-value-1234');
+    expect(await llm.isAvailable('vision')).toBe(true);
+    const cleared = await llm.clearCredential('admin', 'dashscope');
+    expect(cleared.providers.find((p) => p.id === 'dashscope')?.configured).toBe(false);
   });
 
   it('reports slots whose provider has no key', async () => {
     const { llm } = service([]);
+    await llm.onModuleInit();
     expect(await llm.isAvailable('classify')).toBe(true);
     expect(await llm.isAvailable('vision')).toBe(false);
   });

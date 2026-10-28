@@ -9,7 +9,7 @@
 
 ## 模型
 
-在服务器 `.env` 填写要用的服务的 key（`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `ANTHROPIC_API_KEY`），`docker compose up -d` 重启后，在 设置 → 模型 为每个任务选服务和模型，点“测试”确认可用。system prompt 在 `server/prompts/`。
+管理员在 设置 → 模型 填写各服务的 API key（加密入库，页面只显示末 4 位；也可写在服务器 `.env`，设置页的优先），为每个任务选服务和模型，点“测试”确认可用。默认：分类 / 草稿用 DeepSeek `deepseek-v4-pro`，识图用阿里云百炼 `qwen3.8-max`。system prompt 在 `server/prompts/`。
 
 ## 本地开发
 
@@ -56,6 +56,6 @@ docker compose up -d --build
 
 ## 安全约定
 
-- 所有密钥只在服务器 `.env`；`legacy/`（妙搭旧代码）和 `docs/private/` 不进仓库
+- 部署密钥只在服务器 `.env`；模型 key 与邮箱授权码在设置页填写，用 MAIL_SECRET_KEY 加密存库；`legacy/`（妙搭旧代码）和 `docs/private/` 不进仓库
 - 邮件服务器主机必须在 `MAIL_HOST_ALLOWLIST` 内，防止把授权码发往任意主机
 - 日志不记录请求 / 响应体

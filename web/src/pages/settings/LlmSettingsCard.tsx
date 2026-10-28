@@ -14,7 +14,6 @@ import {
   type LlmSlot,
   type LlmTestResult,
 } from '@aftersell/shared';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,6 +21,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/auth';
 import { api, messageOf } from '@/lib/api';
+import ProviderCredentialRow from './ProviderCredentialRow';
+
+const EFFORT_LABELS: Record<(typeof EFFORTS)[number], string> = { low: '少', medium: '中', high: '多' };
 
 export default function LlmSettingsCard() {
   const { can } = useAuth();
@@ -49,6 +51,12 @@ export default function LlmSettingsCard() {
   }, [load]);
 
   const configured = useMemo(() => new Set(dto?.providers.filter((p) => p.configured).map((p) => p.id)), [dto]);
+
+  // 保存 key 只更新服务状态，不覆盖尚未保存的槽位修改
+  const onCredentialSaved = (next: LlmSettingsDto) => {
+    setDto((prev) => (prev ? { ...prev, providers: next.providers } : next));
+    setResults({});
+  };
   const dirty = !!dto && !!form && JSON.stringify(dto.settings) !== JSON.stringify(form);
 
   const setSlot = (slot: LlmSlot, patch: Partial<LlmSettings['slots'][LlmSlot]>) =>
@@ -110,17 +118,13 @@ export default function LlmSettingsCard() {
       <Card>
         <CardHeader>
           <CardTitle>模型服务</CardTitle>
-          <CardDescription>API key 只保存在服务器的 .env 文件里，页面上不显示也不能修改。</CardDescription>
+          <CardDescription>
+            key 加密保存在数据库里，保存后页面只显示末 4 位，不会再显示完整内容。{!editable && ' 只有管理员可以填写。'}
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
-          {LLM_PROVIDERS.map((id) => (
-            <div key={id} className="flex items-center gap-3 text-sm">
-              <span className="w-44">{LLM_PROVIDER_INFO[id].label}</span>
-              <Badge variant={configured.has(id) ? 'secondary' : 'outline'}>{configured.has(id) ? '已配置' : '未配置'}</Badge>
-              <span className="text-xs text-muted-foreground">
-                {LLM_PROVIDER_INFO[id].envKey} · {LLM_PROVIDER_INFO[id].note}
-              </span>
-            </div>
+        <CardContent className="space-y-4">
+          {dto.providers.map((p) => (
+            <ProviderCredentialRow key={p.id} status={p} editable={editable} onSaved={onCredentialSaved} />
           ))}
         </CardContent>
       </Card>
@@ -145,7 +149,7 @@ export default function LlmSettingsCard() {
                 <div className="flex items-center gap-3 flex-wrap">
                   <Select
                     value={cfg.provider}
-                    onValueChange={(v) => setSlot(slot, { provider: v as LlmProviderId, effort: v === 'anthropic' ? cfg.effort ?? 'low' : undefined })}
+                    onValueChange={(v) => setSlot(slot, { provider: v as LlmProviderId, effort: undefined })}
                     disabled={!editable}
                   >
                     <SelectTrigger className="w-56">
@@ -167,15 +171,20 @@ export default function LlmSettingsCard() {
                     disabled={!editable}
                     placeholder="模型名"
                   />
-                  {cfg.provider === 'anthropic' && (
-                    <Select value={cfg.effort ?? 'low'} onValueChange={(v) => setSlot(slot, { effort: v as (typeof EFFORTS)[number] })} disabled={!editable}>
-                      <SelectTrigger className="w-28">
+                  {LLM_PROVIDER_INFO[cfg.provider].effort && (
+                    <Select
+                      value={cfg.effort ?? 'default'}
+                      onValueChange={(v) => setSlot(slot, { effort: v === 'default' ? undefined : (v as (typeof EFFORTS)[number]) })}
+                      disabled={!editable}
+                    >
+                      <SelectTrigger className="w-32">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="default">思考：默认</SelectItem>
                         {EFFORTS.map((e) => (
                           <SelectItem key={e} value={e}>
-                            effort {e}
+                            思考：{EFFORT_LABELS[e]}
                           </SelectItem>
                         ))}
                       </SelectContent>

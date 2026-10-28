@@ -1,13 +1,25 @@
 import OpenAI from 'openai';
-import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { LlmResponseError, type CallOptions, type ChatTurn, type ImageInput, type LLMProvider, type LlmResult } from './provider';
 
-/** DeepSeek、阿里云百炼等 OpenAI 兼容接口 */
+/** 我们的三档 → DeepSeek 的 reasoning_effort（low / high / max） */
+const DEEPSEEK_EFFORT: Record<NonNullable<CallOptions['effort']>, 'low' | 'high'> = { low: 'low', medium: 'high', high: 'high' };
+
+/**
+ * DeepSeek、阿里云百炼等 OpenAI 兼容接口。
+ * 现用模型默认开启思考：思考过程在 reasoning_content，答案在 content，这里只取 content。
+ */
 export class OpenAiCompatibleProvider implements LLMProvider {
   private readonly client: OpenAI;
+  /** 不接受 response_format 的模型，之后直接靠 prompt 约束 JSON */
+  private readonly noJsonMode = new Set<string>();
 
-  constructor(apiKey: string, baseURL: string) {
-    this.client = new OpenAI({ apiKey, baseURL, timeout: 90_000, maxRetries: 2 });
+  constructor(
+    apiKey: string,
+    baseURL: string,
+    private readonly opts: { reasoningEffort: boolean },
+  ) {
+    this.client = new OpenAI({ apiKey, baseURL, timeout: 180_000, maxRetries: 2 });
   }
 
   private async complete(
@@ -15,13 +27,25 @@ export class OpenAiCompatibleProvider implements LLMProvider {
     messages: ChatCompletionMessageParam[],
     extra: { temperature: number; json?: boolean },
   ): Promise<LlmResult> {
-    const res: ChatCompletion = await this.client.chat.completions.create({
+    const params: ChatCompletionCreateParamsNonStreaming = {
       model: req.model,
       max_tokens: req.maxTokens,
       temperature: extra.temperature,
       messages,
-      ...(extra.json ? { response_format: { type: 'json_object' as const } } : {}),
-    });
+    };
+    if (this.opts.reasoningEffort && req.effort) params.reasoning_effort = DEEPSEEK_EFFORT[req.effort];
+    const json = extra.json && !this.noJsonMode.has(req.model);
+    let res: ChatCompletion;
+    try {
+      res = await this.client.chat.completions.create(
+        (json ? { ...params, response_format: { type: 'json_object' } } : params) as ChatCompletionCreateParamsNonStreaming,
+      );
+    } catch (error) {
+      // 部分模型在思考模式下不支持 JSON mode：去掉后重试一次，结构由 prompt + zod 校验保证
+      if (!json || !(error instanceof OpenAI.BadRequestError)) throw error;
+      this.noJsonMode.add(req.model);
+      res = await this.client.chat.completions.create(params);
+    }
     const choice = res.choices[0];
     if (choice?.finish_reason === 'length') throw new LlmResponseError('模型输出被截断（超过 max_tokens）');
     if (choice?.finish_reason === 'content_filter') throw new LlmResponseError('模型因内容审核拒绝输出');

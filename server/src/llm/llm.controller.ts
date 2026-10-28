@@ -1,5 +1,9 @@
-import { Controller, Get, HttpCode, Post, Put } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Param, ParseEnumPipe, Post, Put } from '@nestjs/common';
 import {
+  LLM_PROVIDERS,
+  saveLlmCredentialSchema,
+  type LlmProviderId,
+  type SaveLlmCredentialRequest,
   llmSettingsSchema,
   llmTestSchema,
   type LlmSettings,
@@ -25,6 +29,26 @@ export class LlmController {
   @Put('settings')
   save(@CurrentUser() user: AuthUser, @ZodBody(llmSettingsSchema) dto: LlmSettings): Promise<LlmSettingsDto> {
     return this.llm.saveSettings(user.id, dto);
+  }
+
+  /** 填写或更换某个服务的 API key / 接口地址；明文 key 不会再返回 */
+  @Roles('admin')
+  @Put('credentials/:provider')
+  saveCredential(
+    @CurrentUser() user: AuthUser,
+    @Param('provider', new ParseEnumPipe(LLM_PROVIDERS)) provider: LlmProviderId,
+    @ZodBody(saveLlmCredentialSchema) dto: SaveLlmCredentialRequest,
+  ): Promise<LlmSettingsDto> {
+    return this.llm.saveCredential(user.id, provider, dto);
+  }
+
+  @Roles('admin')
+  @Delete('credentials/:provider')
+  clearCredential(
+    @CurrentUser() user: AuthUser,
+    @Param('provider', new ParseEnumPipe(LLM_PROVIDERS)) provider: LlmProviderId,
+  ): Promise<LlmSettingsDto> {
+    return this.llm.clearCredential(user.id, provider);
   }
 
   @Roles('admin')

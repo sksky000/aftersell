@@ -9,8 +9,8 @@ const FALLBACK_MODELS = new Set(['claude-fable-5-1', 'claude-opus-5-5', 'claude-
 export class AnthropicProvider implements LLMProvider {
   private readonly client: Anthropic;
 
-  constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey, timeout: 180_000, maxRetries: 2 });
+  constructor(apiKey: string, baseURL?: string) {
+    this.client = new Anthropic({ apiKey, baseURL, timeout: 180_000, maxRetries: 2 });
   }
 
   private async call(

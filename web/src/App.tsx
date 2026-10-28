@@ -4,7 +4,8 @@ import { useAuth } from './auth';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
-import InboxPage from './pages/InboxPage';
+import InboxPage from './pages/inbox/InboxPage';
+import EmailDetailPage from './pages/EmailDetailPage';
 import SettingsPage from './pages/settings/SettingsPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/inbox" replace />} />
         <Route path="inbox" element={<InboxPage />} />
+        <Route path="emails/:id" element={<EmailDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

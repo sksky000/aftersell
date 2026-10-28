@@ -6,6 +6,7 @@ import {
   DEFAULT_IMAP_PORT,
   DEFAULT_SMTP_HOST,
   DEFAULT_SMTP_PORT,
+  DEFAULT_SYNC_INTERVAL_MINUTES,
   MAX_PER_RUN_CEILING,
   saveMailAccountSchema,
   type MailAccountDto,
@@ -36,6 +37,7 @@ interface FormState {
   registrationOnly: boolean;
   firstContactOnly: boolean;
   maxPerRun: string;
+  syncIntervalMinutes: string;
   syncDateFrom: string;
   syncDateTo: string;
 }
@@ -53,6 +55,7 @@ const EMPTY: FormState = {
   registrationOnly: false,
   firstContactOnly: false,
   maxPerRun: '20',
+  syncIntervalMinutes: String(DEFAULT_SYNC_INTERVAL_MINUTES),
   syncDateFrom: '',
   syncDateTo: '',
 };
@@ -71,13 +74,14 @@ function fromDto(d: MailAccountDto): FormState {
     imapPort: String(d.imapPort),
     smtpPort: String(d.smtpPort),
     maxPerRun: String(d.maxPerRun),
+    syncIntervalMinutes: String(d.syncIntervalMinutes),
     syncDateFrom: d.syncDateFrom ?? '',
     syncDateTo: d.syncDateTo ?? '',
   };
 }
 
 const SWITCHES: { key: keyof FormState; label: string; hint: string }[] = [
-  { key: 'syncEnabled', label: '启用定时拉取', hint: 'M1 上线后生效；关闭时不会从邮箱拉信' },
+  { key: 'syncEnabled', label: '启用定时拉取', hint: '按下方间隔自动拉取新邮件；关闭后仍可在看板手动同步' },
   { key: 'keepUnread', label: '拉取后保持未读', hint: '不在邮箱里把邮件标为已读' },
   { key: 'hotlineOnly', label: '只拉热线工单', hint: '仅入库热线转发的工单邮件' },
   { key: 'registrationOnly', label: '只拉注册邮件', hint: '仅入库产品注册相关邮件' },
@@ -133,6 +137,7 @@ export default function MailConfigCard() {
       imapPort: Number(form.imapPort),
       smtpPort: Number(form.smtpPort),
       maxPerRun: Number(form.maxPerRun),
+      syncIntervalMinutes: Number(form.syncIntervalMinutes),
       syncDateFrom: form.syncDateFrom || null,
       syncDateTo: form.syncDateTo || null,
     });
@@ -255,7 +260,16 @@ export default function MailConfigCard() {
                   <Switch checked={form[s.key] as boolean} onCheckedChange={(v) => set(s.key, v as never)} />
                 </div>
               ))}
-              <div className="grid grid-cols-3 gap-4 pt-2">
+              <div className="grid grid-cols-4 gap-4 pt-2">
+                <div className="space-y-2">
+                  <Label htmlFor="syncIntervalMinutes">拉取间隔（分钟）</Label>
+                  <Input
+                    id="syncIntervalMinutes"
+                    type="number"
+                    value={form.syncIntervalMinutes}
+                    onChange={(e) => set('syncIntervalMinutes', e.target.value)}
+                  />
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="maxPerRun">单次拉取上限（1-{MAX_PER_RUN_CEILING}）</Label>
                   <Input id="maxPerRun" type="number" value={form.maxPerRun} onChange={(e) => set('maxPerRun', e.target.value)} />

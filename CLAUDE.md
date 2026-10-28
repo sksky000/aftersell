@@ -9,6 +9,8 @@
 
 - `shared/` zod schema 与类型，前后端共用（server 用编译产物，web 直接引源码）
 - `server/` NestJS 10 + Drizzle + PostgreSQL；启动时自动跑 `server/drizzle/` 迁移
+  - `src/mail/` 从妙搭直接迁来的纯函数（案件归组、热线、转发、引用剥离），带 vitest 回归；热线 / 领导地址经 `sender-directory` 从设置读取，不写死在代码里
+  - `src/mail-sync/` BullMQ 拉信队列（worker 并发 1）+ 幂等入库；`src/emails/` 看板与详情接口；`src/storage/` 附件存储接口（本地磁盘，按 sha256 寻址）
 - `web/` React 19 + Vite + Tailwind v4 + shadcn 组件；生产构建由 server 静态托管
 - `deploy/` Caddyfile、部署脚本
 

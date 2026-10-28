@@ -5,6 +5,7 @@ export const DEFAULT_SMTP_HOST = 'smtp.exmail.qq.com';
 export const DEFAULT_IMAP_PORT = 993;
 export const DEFAULT_SMTP_PORT = 465;
 export const MAX_PER_RUN_CEILING = 100;
+export const DEFAULT_SYNC_INTERVAL_MINUTES = 5;
 
 const dateString = z
   .string()
@@ -28,6 +29,8 @@ export const saveMailAccountSchema = z
     registrationOnly: z.boolean(),
     firstContactOnly: z.boolean(),
     maxPerRun: z.number().int().min(1).max(MAX_PER_RUN_CEILING),
+    /** 定时拉取间隔（分钟） */
+    syncIntervalMinutes: z.number().int().min(1, '拉取间隔至少 1 分钟').max(1440, '拉取间隔最多 1440 分钟'),
     syncDateFrom: dateString,
     syncDateTo: dateString,
   })
@@ -51,6 +54,7 @@ export interface MailAccountDto {
   registrationOnly: boolean;
   firstContactOnly: boolean;
   maxPerRun: number;
+  syncIntervalMinutes: number;
   syncDateFrom: string | null;
   syncDateTo: string | null;
   lastSyncAt: string | null;

@@ -39,6 +39,7 @@ describe('saveMailAccountSchema', () => {
     registrationOnly: false,
     firstContactOnly: false,
     maxPerRun: 20,
+    syncIntervalMinutes: 5,
     syncDateFrom: null,
     syncDateTo: null,
   };

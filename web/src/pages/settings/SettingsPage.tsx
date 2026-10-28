@@ -3,12 +3,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ChangePasswordForm from '@/components/ChangePasswordForm';
 import { useAuth } from '@/auth';
 import MailConfigCard from './MailConfigCard';
+import MailRoutingCard from './MailRoutingCard';
 import UsersCard from './UsersCard';
 
 export default function SettingsPage() {
   const { can } = useAuth();
   const tabs = [
-    can('supervisor') && { key: 'mail', label: '邮箱', content: <MailConfigCard /> },
+    can('supervisor') && {
+      key: 'mail',
+      label: '邮箱',
+      content: (
+        <div className="space-y-6">
+          <MailConfigCard />
+          <MailRoutingCard />
+        </div>
+      ),
+    },
     can('admin') && { key: 'users', label: '用户管理', content: <UsersCard /> },
     { key: 'account', label: '我的账号', content: <ChangePasswordForm /> },
   ].filter(Boolean) as { key: string; label: string; content: React.ReactNode }[];

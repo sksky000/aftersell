@@ -25,6 +25,8 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   /** 生产环境前端构建产物目录 */
   WEB_DIST_DIR: z.string().optional(),
+  /** 附件存放目录（相对路径按工作目录解析）；容器内挂载为数据卷 */
+  ATTACHMENT_DIR: z.string().default('data/attachments'),
 });
 
 export type Env = z.infer<typeof envSchema>;

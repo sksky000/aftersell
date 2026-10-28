@@ -2,11 +2,18 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { eq } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import * as nodemailer from 'nodemailer';
-import type { MailAccountDto, MailConfigMeta, SaveMailAccountRequest, TestConnectionResult } from '@aftersell/shared';
+import type {
+  MailAccountDto,
+  MailConfigMeta,
+  SaveMailAccountRequest,
+  TestConnectionResult,
+  UpdateSyncFiltersRequest,
+} from '@aftersell/shared';
 import { env, mailHostAllowlist } from '../config/env';
 import { SecretBox } from '../common/secret-box';
 import { DB, type Database } from '../db/db.module';
 import { emailAccount, type EmailAccountRow } from '../db/schema';
+import type { SyncFilters } from '../mail/sync-filters';
 import { checkMailEndpoints, describeMailError } from './mail-endpoint';
 
 const CONNECT_TIMEOUT_MS = 15_000;
@@ -18,6 +25,34 @@ export interface MailCredentials {
   imapPort: number;
   smtpHost: string;
   smtpPort: number;
+}
+
+export interface SyncOptions {
+  syncEnabled: boolean;
+  keepUnread: boolean;
+  filters: SyncFilters;
+  maxPerRun: number;
+  intervalMinutes: number;
+  syncDateFrom: string | null;
+  syncDateTo: string | null;
+}
+
+type ChangeListener = (options: SyncOptions | null) => void | Promise<void>;
+
+function syncOptionsOf(row: EmailAccountRow): SyncOptions {
+  return {
+    syncEnabled: row.syncEnabled,
+    keepUnread: row.keepUnread,
+    filters: {
+      hotlineOnly: row.hotlineOnly,
+      registrationOnly: row.registrationOnly,
+      firstContactOnly: row.firstContactOnly,
+    },
+    maxPerRun: row.maxPerRun,
+    intervalMinutes: row.syncIntervalMinutes,
+    syncDateFrom: row.syncDateFrom,
+    syncDateTo: row.syncDateTo,
+  };
 }
 
 function toDto(row: EmailAccountRow): MailAccountDto {
@@ -34,6 +69,7 @@ function toDto(row: EmailAccountRow): MailAccountDto {
     registrationOnly: row.registrationOnly,
     firstContactOnly: row.firstContactOnly,
     maxPerRun: row.maxPerRun,
+    syncIntervalMinutes: row.syncIntervalMinutes,
     syncDateFrom: row.syncDateFrom,
     syncDateTo: row.syncDateTo,
     lastSyncAt: row.lastSyncAt ? row.lastSyncAt.toISOString() : null,
@@ -46,12 +82,50 @@ function toDto(row: EmailAccountRow): MailAccountDto {
 export class MailConfigService {
   private readonly logger = new Logger(MailConfigService.name);
   private readonly box = new SecretBox(env().MAIL_SECRET_KEY);
+  private readonly listeners: ChangeListener[] = [];
 
   constructor(@Inject(DB) private readonly db: Database) {}
 
   private async row(): Promise<EmailAccountRow | undefined> {
     const [row] = await this.db.select().from(emailAccount).limit(1);
     return row;
+  }
+
+  /** 配置变化时通知（定时拉取据此重排） */
+  onChange(listener: ChangeListener): void {
+    this.listeners.push(listener);
+  }
+
+  private async notify(row: EmailAccountRow): Promise<void> {
+    for (const listener of this.listeners) {
+      try {
+        await listener(syncOptionsOf(row));
+      } catch (error) {
+        this.logger.error(`邮箱配置变更通知失败: ${describeMailError(error)}`);
+      }
+    }
+  }
+
+  async syncOptions(): Promise<SyncOptions | null> {
+    const row = await this.row();
+    return row ? syncOptionsOf(row) : null;
+  }
+
+  async updateFilters(actorId: string, patch: UpdateSyncFiltersRequest): Promise<MailAccountDto> {
+    const existing = await this.row();
+    if (!existing) throw new BadRequestException('尚未配置邮箱账号，请先在设置页配置');
+    const [saved] = await this.db
+      .update(emailAccount)
+      .set({ ...patch, updatedBy: actorId, updatedAt: new Date() })
+      .where(eq(emailAccount.id, existing.id))
+      .returning();
+    this.logger.log(`拉取开关已更新 by=${actorId} ${JSON.stringify(patch)}`);
+    await this.notify(saved);
+    return toDto(saved);
+  }
+
+  async markSynced(at: Date): Promise<void> {
+    await this.db.update(emailAccount).set({ lastSyncAt: at });
   }
 
   meta(): MailConfigMeta {
@@ -105,6 +179,7 @@ export class MailConfigService {
         .returning();
     }
     this.logger.log(`邮箱配置已更新 by=${actorId} authCodeChanged=${Boolean(cipher)}`);
+    await this.notify(saved);
     return toDto(saved);
   }
 

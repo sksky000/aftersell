@@ -1,10 +1,12 @@
-import { Controller, Get, HttpCode, Post, Put } from '@nestjs/common';
+import { Controller, Get, HttpCode, Patch, Post, Put } from '@nestjs/common';
 import {
   saveMailAccountSchema,
+  updateSyncFiltersSchema,
   type MailAccountDto,
   type MailConfigMeta,
   type SaveMailAccountRequest,
   type TestConnectionResult,
+  type UpdateSyncFiltersRequest,
 } from '@aftersell/shared';
 import { ZodBody } from '../common/zod-body';
 import { CurrentUser, Roles, type AuthUser } from '../auth/decorators';
@@ -33,6 +35,16 @@ export class MailConfigController {
     @ZodBody(saveMailAccountSchema) dto: SaveMailAccountRequest,
   ): Promise<MailAccountDto> {
     return this.mailConfig.save(user.id, dto);
+  }
+
+  /** 看板上的三组拉取开关，主管即可切换 */
+  @Roles('supervisor')
+  @Patch('filters')
+  updateFilters(
+    @CurrentUser() user: AuthUser,
+    @ZodBody(updateSyncFiltersSchema) dto: UpdateSyncFiltersRequest,
+  ): Promise<MailAccountDto> {
+    return this.mailConfig.updateFilters(user.id, dto);
   }
 
   @Roles('admin')

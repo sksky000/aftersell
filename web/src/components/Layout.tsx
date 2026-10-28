@@ -1,15 +1,16 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Inbox, LogOut, Settings } from 'lucide-react';
 import { ROLE_LABELS } from '@aftersell/shared';
 import { useAuth } from '@/auth';
 
 const NAV_ITEMS = [
-  { to: '/inbox', label: '邮件看板', icon: Inbox },
-  { to: '/settings', label: '设置', icon: Settings },
+  { to: '/inbox', label: '邮件看板', icon: Inbox, also: '/emails/' },
+  { to: '/settings', label: '设置', icon: Settings, also: null },
 ];
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const { pathname } = useLocation();
 
   return (
     <div className="w-screen h-screen flex">
@@ -23,11 +24,12 @@ export default function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
+              className={({ isActive: exact }) => {
+                const isActive = exact || (item.also !== null && pathname.startsWith(item.also));
+                return `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
                   isActive ? 'font-medium text-foreground bg-black/5' : 'text-muted-foreground hover:text-foreground'
-                }`
-              }
+                }`;
+              }}
             >
               <item.icon className="size-4" />
               <span>{item.label}</span>

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, type PipeTransform } from '@nestjs/common';
+import { BadRequestException, Body, Query, type PipeTransform } from '@nestjs/common';
 import type { ZodTypeAny, z } from 'zod';
 
 export class ZodPipe<T extends ZodTypeAny> implements PipeTransform<unknown, z.infer<T>> {
@@ -19,3 +19,6 @@ export class ZodPipe<T extends ZodTypeAny> implements PipeTransform<unknown, z.i
 
 /** 用 zod schema 校验请求体：`@ZodBody(schema) dto: z.infer<typeof schema>` */
 export const ZodBody = (schema: ZodTypeAny) => Body(new ZodPipe(schema));
+
+/** 用 zod schema 校验查询参数 */
+export const ZodQuery = (schema: ZodTypeAny) => Query(new ZodPipe(schema));

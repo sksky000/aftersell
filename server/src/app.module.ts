@@ -7,6 +7,10 @@ import { HealthController } from './health/health.controller';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { MailConfigModule } from './mail-config/mail-config.module';
+import { StorageModule } from './storage/storage.module';
+import { SettingsModule } from './settings/settings.module';
+import { MailSyncModule } from './mail-sync/mail-sync.module';
+import { EmailsModule } from './emails/emails.module';
 
 function staticWeb(): DynamicModule[] {
   const dir = env().WEB_DIST_DIR;
@@ -14,7 +18,18 @@ function staticWeb(): DynamicModule[] {
 }
 
 @Module({
-  imports: [DbModule, RedisModule, AuthModule, UsersModule, MailConfigModule, ...staticWeb()],
+  imports: [
+    DbModule,
+    RedisModule,
+    StorageModule,
+    AuthModule,
+    UsersModule,
+    MailConfigModule,
+    SettingsModule,
+    MailSyncModule,
+    EmailsModule,
+    ...staticWeb(),
+  ],
   controllers: [HealthController],
 })
 export class AppModule {}

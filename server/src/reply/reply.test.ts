@@ -126,6 +126,7 @@ describe('signals', () => {
 
   it('channels: hotline, Walmart store, delayed reply, Chinese', () => {
     expect(hitKeys({ fromAddress: 'noreply@depothelp.com', subject: 'Pat Customer: 2025550101 (Account: Phoenix)' })).toContain('channel.hotline');
+    expect(signalsFor({ fromAddress: 'noreply@depothelp.com', subject: 'Fw:Re: Pat Customer :2025550101(Account:Phoenix Brands)' }).firstName).toBe('Pat');
     const store = signalsFor({ fromAddress: 'abc.s01234.us@wal-mart.com' });
     expect([store.isWalmartStore, store.storeLabel]).toEqual([true, 'Walmart store 1234']);
     expect(hitKeys({ fromAddress: 'abc.s01234.us@wal-mart.com' })).toEqual(expect.arrayContaining(['evidence_policy.walmart_store', 'action.walmart_store']));

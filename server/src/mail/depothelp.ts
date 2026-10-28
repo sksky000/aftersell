@@ -51,8 +51,9 @@ const DEPOTHELP_SUBJECT_PATTERN = /^(.+?)\s*[:：]\s*(\+?\d[\d\s-]{6,}\d)\s*(?:\
 export function parseDepothelpSubject(subject: string | null | undefined): DepothelpContact | null {
   if (!subject) return null;
   let cleaned = subject.trim();
-  while (/^re\s*[:：]/i.test(cleaned)) {
-    cleaned = cleaned.replace(/^re\s*[:：]\s*/i, '').trim();
+  // 回复 / 转发前缀都去掉，否则 "Fw:John Green" 会被当成客户名
+  while (/^(?:re|fwd?|回复|转发)\s*[:：]/i.test(cleaned)) {
+    cleaned = cleaned.replace(/^(?:re|fwd?|回复|转发)\s*[:：]\s*/i, '').trim();
   }
   const match = cleaned.match(DEPOTHELP_SUBJECT_PATTERN);
   if (!match) return null;

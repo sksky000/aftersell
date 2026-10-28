@@ -18,12 +18,19 @@ export function parseInsert(sql: string): Record<string, string | null>[] {
     const values: (string | null)[] = [];
     for (;;) {
       skipSpace();
+      // E'...' 是 PostgreSQL 的转义字符串：额外支持反斜杠转义
+      const escaped = (sql[i] === 'E' || sql[i] === 'e') && sql[i + 1] === "'";
+      if (escaped) i += 1;
       if (sql[i] === "'") {
         let s = '';
         i += 1;
         for (;;) {
           if (i >= sql.length) throw new Error('字符串未闭合');
-          if (sql[i] === "'" && sql[i + 1] === "'") {
+          if (escaped && sql[i] === '\\') {
+            const next = sql[i + 1];
+            s += next === 'n' ? '\n' : next === 't' ? '\t' : next === 'r' ? '\r' : next;
+            i += 2;
+          } else if (sql[i] === "'" && sql[i + 1] === "'") {
             s += "'";
             i += 2;
           } else if (sql[i] === "'") {

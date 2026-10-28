@@ -220,4 +220,11 @@ describe('legacy export parser', () => {
       { id: 'b', note: 'x, (y)', n: '3' },
     ]);
   });
+
+  it("handles PostgreSQL E'...' escape strings", () => {
+    const rows = parseInsert(String.raw`INSERT INTO t ("a","b") VALUES (E'["1/2\\"*3/32\\"","it\'s"]','ok');`);
+    expect(rows[0].a).toBe('["1/2\\"*3/32\\"","it\'s"]');
+    expect(JSON.parse(rows[0].a!)).toEqual(['1/2"*3/32"', "it's"]);
+    expect(rows[0].b).toBe('ok');
+  });
 });

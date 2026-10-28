@@ -81,6 +81,10 @@ export class MailSyncQueue implements OnModuleInit, OnApplicationShutdown {
   }
 
   async enqueueManual(userId: string): Promise<SyncStatusDto> {
+    // 已结束但未清理的同名任务会让 add 被静默忽略，先移除
+    const previous = await this.queue.getJob(MANUAL_JOB_ID);
+    const state = previous ? await previous.getState() : null;
+    if (previous && (state === 'completed' || state === 'failed')) await previous.remove();
     await this.queue.add('sync', { trigger: 'manual', userId }, { jobId: MANUAL_JOB_ID });
     return this.status();
   }

@@ -51,8 +51,8 @@ const MAX_QUOTED = 2000;
 const MAX_RECOGNIZED = 1500;
 
 /** 客户内容里出现我们的标签名时去掉尖括号，避免伪造结构 */
-function neutralize(text: string): string {
-  return text.replace(/<(\/?)(email|subject|from|body|quoted_history|attachments|attachment)\b/gi, '‹$1$2');
+export function neutralize(text: string): string {
+  return text.replace(/<(\/?)(email|subject|from|body|quoted_history|attachments|attachment|context)\b/gi, '‹$1$2');
 }
 
 function truncate(text: string, max: number): string {

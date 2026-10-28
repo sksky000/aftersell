@@ -5,6 +5,7 @@ import { useAuth } from '@/auth';
 import MailConfigCard from './MailConfigCard';
 import MailRoutingCard from './MailRoutingCard';
 import LlmSettingsCard from './LlmSettingsCard';
+import KnowledgeSettings from './KnowledgeSettings';
 import UsersCard from './UsersCard';
 
 export default function SettingsPage() {
@@ -21,6 +22,7 @@ export default function SettingsPage() {
       ),
     },
     can('supervisor') && { key: 'llm', label: '模型', content: <LlmSettingsCard /> },
+    can('supervisor') && { key: 'knowledge', label: '业务知识', content: <KnowledgeSettings /> },
     can('admin') && { key: 'users', label: '用户管理', content: <UsersCard /> },
     { key: 'account', label: '我的账号', content: <ChangePasswordForm /> },
   ].filter(Boolean) as { key: string; label: string; content: React.ReactNode }[];

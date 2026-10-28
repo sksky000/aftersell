@@ -22,7 +22,7 @@ export class SettingsService {
     return parsed.data;
   }
 
-  async set(key: string, value: unknown, actorId: string): Promise<void> {
+  async set(key: string, value: unknown, actorId: string | null): Promise<void> {
     await this.db
       .insert(setting)
       .values({ key, value, updatedBy: actorId })

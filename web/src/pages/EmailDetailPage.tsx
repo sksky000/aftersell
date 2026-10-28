@@ -35,6 +35,7 @@ import {
   URGENCY_BADGE_CLASS,
 } from './inbox/badges';
 import { senderOf } from './inbox/EmailCard';
+import DraftPanel from './DraftPanel';
 
 const POLL_MS = 4000;
 
@@ -303,6 +304,15 @@ export default function EmailDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {email.pipelineState !== 'ingested' && email.pipelineState !== 'failed' && (
+            <DraftPanel
+              emailId={email.id}
+              pending={email.pipelineState === 'classified' && !email.pipelineError}
+              error={email.pipelineState === 'classified' ? email.pipelineError : null}
+              canDraft={email.status === 'pending_review' && (email.isComplaint || email.category !== 'other')}
+            />
+          )}
 
           {others.length > 0 && (
             <Card className="shadow-none">

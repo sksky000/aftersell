@@ -26,6 +26,8 @@ import {
   PART_TYPES,
   PIPELINE_STATES,
   ROLES,
+  RULE_SLOTS,
+  type DraftCheck,
   SYNC_RUN_STATUSES,
   SYNC_TRIGGERS,
   URGENCIES,
@@ -252,7 +254,161 @@ export const llmCall = pgTable(
   (t) => [index('llm_call_created_at_idx').on(t.createdAt), index('llm_call_email_id_idx').on(t.emailId)],
 );
 
+export const ruleSlotEnum = pgEnum('rule_slot', RULE_SLOTS);
+export const replyStatusEnum = pgEnum('reply_status', ['draft', 'sent', 'discarded']);
+
+/**
+ * 规则引擎条目：条件（JSON logic，对 CaseSignals 求值）+ 注入文案。
+ * 初始规则从妙搭 reply-context 等逐条迁入；启动时只插入库里没有的 key，不覆盖设置页的修改。
+ */
+export const rule = pgTable('rule', {
+  key: varchar('key', { length: 100 }).primaryKey(),
+  description: varchar('description', { length: 200 }).notNull(),
+  slot: ruleSlotEnum('slot').notNull(),
+  priority: integer('priority').notNull().default(50),
+  exclusive: boolean('exclusive').notNull().default(false),
+  when: jsonb('when'),
+  text: text('text').notNull(),
+  source: varchar('source', { length: 300 }),
+  enabled: boolean('enabled').notNull().default(true),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
+
+/** 草稿与终稿；每次重新生成新增一个 version */
+export const emailReply = pgTable(
+  'email_reply',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    emailId: uuid('email_id')
+      .notNull()
+      .references(() => emailMessage.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    status: replyStatusEnum('status').notNull().default('draft'),
+    draftContent: text('draft_content').notNull(),
+    /** M4：客服编辑后实际发出的内容 */
+    finalContent: text('final_content'),
+    /** 送给模型的上下文（不含 system prompt），供排查与回放 */
+    context: text('context'),
+    checks: jsonb('checks').$type<DraftCheck[]>().notNull().default([]),
+    provider: varchar('provider', { length: 32 }),
+    model: varchar('model', { length: 100 }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('email_reply_email_version_uq').on(t.emailId, t.version)],
+);
+
+/** 每次草稿生成命中了哪些规则 */
+export const ruleHit = pgTable(
+  'rule_hit',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    replyId: uuid('reply_id')
+      .notNull()
+      .references(() => emailReply.id, { onDelete: 'cascade' }),
+    ruleKey: varchar('rule_key', { length: 100 }).notNull(),
+    slot: ruleSlotEnum('slot').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('rule_hit_reply_idx').on(t.replyId), index('rule_hit_rule_idx').on(t.ruleKey)],
+);
+
+/** 风格条目：可单独开关；scope 为空表示所有邮件 */
+export const styleRule = pgTable('style_rule', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  text: text('text').notNull(),
+  category: categoryEnum('category'),
+  partType: partTypeEnum('part_type'),
+  enabled: boolean('enabled').notNull().default(true),
+  source: varchar('source', { length: 300 }),
+  sortOrder: integer('sort_order').notNull().default(0),
+  ...timestamps,
+});
+
+/** 价格表：草稿只能用这里的价格报价 */
+export const priceItem = pgTable(
+  'price_item',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    partType: partTypeEnum('part_type').notNull(),
+    /** 适用车型码；空表示不限车型 */
+    modelCode: varchar('model_code', { length: 40 }),
+    label: varchar('label', { length: 200 }).notNull(),
+    amount: integer('amount_cents').notNull(),
+    includesShipping: boolean('includes_shipping').notNull().default(true),
+    note: varchar('note', { length: 300 }),
+    enabled: boolean('enabled').notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('price_item_model_part_uq').on(sql`coalesce(${t.modelCode}, '')`, t.partType, t.label)],
+);
+
+/** 妙搭历史回复聚类出的知识卡（只导入 approved）；价格不注入草稿，以价格表为准 */
+export const knowledgeCard = pgTable('knowledge_card', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clusterKey: varchar('cluster_key', { length: 200 }).notNull().unique(),
+  category: varchar('category', { length: 64 }).notNull(),
+  partType: varchar('part_type', { length: 32 }).notNull(),
+  imageFlag: varchar('image_flag', { length: 16 }).notNull(),
+  modelCode: varchar('model_code', { length: 64 }),
+  sampleSize: integer('sample_size').notNull().default(0),
+  skeleton: jsonb('skeleton').$type<string[]>().notNull().default([]),
+  facts: jsonb('facts').$type<string[]>().notNull().default([]),
+  rules: jsonb('rules').$type<string[]>().notNull().default([]),
+  /** 历史报价，仅供参考，不进草稿 */
+  pricing: jsonb('pricing'),
+  drift: text('drift'),
+  enabled: boolean('enabled').notNull().default(true),
+  ...timestamps,
+});
+
+/** 说明书知识：车型匹配规则（型号码正则、关键词）与知识正文 */
+export const productKnowledge = pgTable('product_knowledge', {
+  modelCode: varchar('model_code', { length: 40 }).primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  codePattern: varchar('code_pattern', { length: 200 }).notNull(),
+  matchers: jsonb('matchers').$type<string[]>().notNull().default([]),
+  electric: boolean('electric').notNull().default(false),
+  noToolkit: boolean('no_toolkit').notNull().default(false),
+  knowledge: text('knowledge').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  enabled: boolean('enabled').notNull().default(true),
+  ...timestamps,
+});
+
+/**
+ * 我方发出的回复（企业邮箱“已发送”里引用了某封来信的邮件，及 M4 起系统发出的邮件），
+ * 供阶段引擎判断我们上次说了什么、报过什么价、承诺过什么。
+ */
+export const outboundMessage = pgTable(
+  'outbound_message',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    messageId: varchar('message_id', { length: 998 }).notNull(),
+    inReplyTo: varchar('in_reply_to', { length: 998 }),
+    refChain: text('ref_chain'),
+    subject: text('subject'),
+    toAddresses: text('to_addresses'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    bodyText: text('body_text').notNull().default(''),
+    source: varchar('source', { length: 16 }).notNull().default('imap_sent'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('outbound_message_message_id_uq').on(t.messageId),
+    index('outbound_message_in_reply_to_idx').on(t.inReplyTo),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
+export type RuleRow = typeof rule.$inferSelect;
+export type EmailReplyRow = typeof emailReply.$inferSelect;
+export type StyleRuleRow = typeof styleRule.$inferSelect;
+export type PriceItemRow = typeof priceItem.$inferSelect;
+export type KnowledgeCardRow = typeof knowledgeCard.$inferSelect;
+export type ProductKnowledgeRow = typeof productKnowledge.$inferSelect;
+export type OutboundMessageRow = typeof outboundMessage.$inferSelect;
 export type AttachmentRecognitionRow = typeof attachmentRecognition.$inferSelect;
 export type CustomerAdjudicationRow = typeof customerAdjudication.$inferSelect;
 export type EmailAccountRow = typeof emailAccount.$inferSelect;

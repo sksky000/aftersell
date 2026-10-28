@@ -19,6 +19,13 @@ export class PipelineController {
     await this.queue.enqueue(id, true);
   }
 
+  /** 重新生成草稿：新增一个版本，加入队列后立即返回 */
+  @Post('emails/:id/draft/regenerate')
+  @HttpCode(202)
+  async regenerate(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.queue.enqueueDraft(id, user.id);
+  }
+
   @Roles('supervisor')
   @Post('adjudications')
   @HttpCode(201)

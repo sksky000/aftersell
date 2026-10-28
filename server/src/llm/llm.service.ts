@@ -291,6 +291,19 @@ export class LlmService implements OnModuleInit {
     throw new LlmOutputError(`模型输出两次未通过校验：${lastProblem}`);
   }
 
+  async generate(
+    slot: LlmSlot,
+    req: { system: string; user: string; maxTokens: number },
+    meta: CallMeta = {},
+  ): Promise<{ text: string; config: LlmSlotConfig }> {
+    const { config, provider } = await this.resolve(slot);
+    const messages: ChatTurn[] = [{ role: 'user', content: req.user }];
+    const result = await this.invoke(slot, config, meta, { system: req.system, messages, model: config.model }, () =>
+      provider.generate({ model: config.model, maxTokens: budget(req.maxTokens), effort: config.effort, system: req.system, messages }),
+    );
+    return { text: result.text, config };
+  }
+
   async vision(
     slot: LlmSlot,
     req: { prompt: string; images: ImageInput[]; maxTokens: number },

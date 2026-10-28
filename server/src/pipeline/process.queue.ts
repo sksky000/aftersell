@@ -7,6 +7,7 @@ import { DB, type Database } from '../db/db.module';
 import { attachmentRecognition, emailAttachment, emailMessage } from '../db/schema';
 import { LlmNotConfiguredError, LlmOutputError, LlmService } from '../llm/llm.service';
 import { LlmResponseError } from '../llm/provider';
+import { DraftService, shouldDraft } from '../reply/draft.service';
 import { ClassifyService } from './classify.service';
 import { RecognitionService } from './recognition.service';
 
@@ -14,15 +15,19 @@ const QUEUE_NAME = 'mail-process';
 const ATTEMPTS = 3;
 const BACKFILL_LIMIT = 500;
 const NOT_CONFIGURED = '分类模型未配置 API key（设置 → 模型），配置后自动补跑';
+const DRAFT_NOT_CONFIGURED = '草稿模型未配置 API key（设置 → 模型），配置后自动补跑';
 
 interface ProcessJobData {
   emailId: string;
   /** 重新分类：已分类过的也重跑 */
-  force: boolean;
+  force?: boolean;
+  /** 草稿任务：触发重新生成的用户 */
+  actorId?: string | null;
 }
 
 /**
- * 入库后的处理队列：识别附件 → 分类。jobId 即邮件 id，同一封不会重复排队。
+ * 入库后的处理队列：识别附件 → 分类 → 草稿（单独的 draft 任务，失败重试不会重跑分类）。
+ * 分类任务 jobId 为邮件 id、草稿任务为 draft-<邮件 id>，同一封不会重复排队。
  * 网络类错误按指数退避重试 3 次，最后一次仍失败则归 other 待人工；输出不合格不重试，直接兜底。
  */
 @Injectable()
@@ -37,6 +42,7 @@ export class ProcessQueue implements OnModuleInit, OnApplicationShutdown {
     private readonly llm: LlmService,
     private readonly recognition: RecognitionService,
     private readonly classify: ClassifyService,
+    private readonly drafts: DraftService,
   ) {}
 
   private connection(): Redis {
@@ -55,7 +61,7 @@ export class ProcessQueue implements OnModuleInit, OnApplicationShutdown {
         removeOnFail: true,
       },
     });
-    this.worker = new Worker<ProcessJobData>(QUEUE_NAME, (job) => this.process(job), {
+    this.worker = new Worker<ProcessJobData>(QUEUE_NAME, (job) => (job.name === 'draft' ? this.processDraft(job) : this.process(job)), {
       connection: this.connection(),
       concurrency: 2,
     });
@@ -70,14 +76,23 @@ export class ProcessQueue implements OnModuleInit, OnApplicationShutdown {
     await Promise.all(this.connections.map((c) => c.quit().catch(() => c.disconnect())));
   }
 
-  async enqueue(emailId: string, force = false): Promise<void> {
-    const previous = await this.queue.getJob(emailId);
+  /** 同名任务还在排队或执行时不重复添加；已结束的先清掉 */
+  private async add(name: 'process' | 'draft', jobId: string, data: ProcessJobData): Promise<void> {
+    const previous = await this.queue.getJob(jobId);
     if (previous) {
       const state = await previous.getState();
       if (state !== 'completed' && state !== 'failed') return;
       await previous.remove();
     }
-    await this.queue.add('process', { emailId, force }, { jobId: emailId });
+    await this.queue.add(name, data, { jobId });
+  }
+
+  enqueue(emailId: string, force = false): Promise<void> {
+    return this.add('process', emailId, { emailId, force });
+  }
+
+  enqueueDraft(emailId: string, actorId: string | null = null): Promise<void> {
+    return this.add('draft', `draft-${emailId}`, { emailId, actorId });
   }
 
   /** 补跑仍是“待分类”的邮件：启动时、模型配置保存后 */
@@ -102,6 +117,15 @@ export class ProcessQueue implements OnModuleInit, OnApplicationShutdown {
       .limit(BACKFILL_LIMIT);
     for (const row of waiting) await this.enqueue(row.id, true);
     if (waiting.length) this.logger.log(`识图可用，补识图并重新分类 ${waiting.length} 封`);
+
+    // 已分类但还没有草稿的待审核邮件
+    const undrafted = await this.db
+      .select({ id: emailMessage.id })
+      .from(emailMessage)
+      .where(and(eq(emailMessage.pipelineState, 'classified'), eq(emailMessage.status, 'pending_review')))
+      .limit(BACKFILL_LIMIT);
+    for (const row of undrafted) await this.enqueueDraft(row.id);
+    if (undrafted.length) this.logger.log(`待生成草稿 ${undrafted.length} 封`);
   }
 
   private async process(job: Job<ProcessJobData>): Promise<void> {
@@ -120,6 +144,7 @@ export class ProcessQueue implements OnModuleInit, OnApplicationShutdown {
     }
     try {
       await this.classify.classify(emailId);
+      await this.enqueueDraft(emailId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof LlmNotConfiguredError) {
@@ -136,6 +161,28 @@ export class ProcessQueue implements OnModuleInit, OnApplicationShutdown {
         return;
       }
       await this.classify.noteError(emailId, `分类调用失败，稍后自动重试：${message}`);
+      throw error;
+    }
+  }
+
+  private async processDraft(job: Job<ProcessJobData>): Promise<void> {
+    const { emailId, actorId } = job.data;
+    const [row] = await this.db.select().from(emailMessage).where(eq(emailMessage.id, emailId)).limit(1);
+    if (!row || !shouldDraft(row)) return;
+    if (!(await this.llm.isAvailable('draft'))) {
+      await this.classify.noteError(emailId, DRAFT_NOT_CONFIGURED);
+      return;
+    }
+    try {
+      await this.drafts.generate(emailId, actorId ?? null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof LlmResponseError || error instanceof LlmNotConfiguredError || job.attemptsMade + 1 >= (job.opts.attempts ?? 1)) {
+        this.logger.warn(`草稿生成失败 email=${emailId}: ${message}`);
+        await this.classify.noteError(emailId, `草稿生成失败：${message}；可在详情页点“重新生成草稿”`);
+        return;
+      }
+      await this.classify.noteError(emailId, `草稿生成失败，稍后自动重试：${message}`);
       throw error;
     }
   }

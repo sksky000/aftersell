@@ -7,7 +7,7 @@ export type LlmSlot = (typeof LLM_SLOTS)[number];
 export const LLM_SLOT_LABELS: Record<LlmSlot, { label: string; hint: string }> = {
   classify: { label: '分类', hint: '15 类分类、零件、紧急度、凭证缺失、是否我方产品' },
   vision: { label: '识图', hint: '附件图片识别；需要支持图片输入的模型' },
-  draft: { label: '草稿', hint: 'M3 起使用' },
+  draft: { label: '草稿', hint: '英文回复草稿' },
   subject_tag: { label: '主题标签', hint: 'M4 起使用' },
   translate: { label: '翻译', hint: 'M4 起使用' },
 };

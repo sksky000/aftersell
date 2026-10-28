@@ -10,7 +10,9 @@ import { parseIncoming } from '../mail/parse-incoming';
 import { selectPendingUids } from '../mail/pending-uids';
 import { describeFilters, hasActiveFilter, passesHeaderFilter, passesMessageFilter } from '../mail/sync-filters';
 import { ProcessQueue } from '../pipeline/process.queue';
+import { SettingsService } from '../settings/settings.service';
 import { IngestService } from './ingest.service';
+import { syncSentFolder } from './sent-sync';
 
 const TIMEOUT_MS = 30_000;
 const HEADER_BATCH = 200;
@@ -73,6 +75,7 @@ export class MailSyncService {
     private readonly mailConfig: MailConfigService,
     private readonly ingest: IngestService,
     private readonly processQueue: ProcessQueue,
+    private readonly settings: SettingsService,
   ) {}
 
   async lastRun(): Promise<SyncRunDto | null> {
@@ -107,10 +110,11 @@ export class MailSyncService {
       const creds = await this.mailConfig.credentials();
       if (!creds) return await finish('skipped', '尚未配置邮箱账号，请先在设置页配置');
 
-      const counts = await this.pull(creds, options);
+      const { counts, sent } = await this.pull(creds, options);
       await this.mailConfig.markSynced(new Date());
-      this.logger.log(`邮件同步完成 trigger=${trigger} ${JSON.stringify(counts)}`);
-      return await finish('succeeded', summarize(counts, options), counts);
+      this.logger.log(`邮件同步完成 trigger=${trigger} ${JSON.stringify({ ...counts, sent })}`);
+      const message = summarize(counts, options) + (sent ? `；同步我方已发回复 ${sent} 封` : '');
+      return await finish('succeeded', message, counts);
     } catch (error) {
       const message = describeMailError(error);
       this.logger.error(`邮件同步失败 trigger=${trigger}: ${message}`);
@@ -118,11 +122,7 @@ export class MailSyncService {
     }
   }
 
-  private async pull(creds: MailCredentials, options: SyncOptions): Promise<Counts> {
-    const counts: Counts = { fetched: 0, inserted: 0, duplicates: 0, filtered: 0, failed: 0 };
-    const filtering = hasActiveFilter(options.filters);
-    const limit = Math.max(1, options.maxPerRun);
-
+  private async pull(creds: MailCredentials, options: SyncOptions): Promise<{ counts: Counts; sent: number }> {
     const client = new ImapFlow({
       host: creds.imapHost,
       port: creds.imapPort,
@@ -137,6 +137,25 @@ export class MailSyncService {
     client.on('error', (err: unknown) => this.logger.warn(`IMAP 连接错误: ${describeMailError(err)}`));
     await client.connect();
     try {
+      const counts = await this.pullInbox(client, options);
+      let sent = 0;
+      try {
+        sent = await syncSentFolder(client, this.db, this.settings, null);
+      } catch (error) {
+        // 已发送同步失败不影响收信结果
+        this.logger.warn(`同步已发送邮件失败: ${describeMailError(error)}`);
+      }
+      return { counts, sent };
+    } finally {
+      await client.logout().catch(() => client.close());
+    }
+  }
+
+  private async pullInbox(client: ImapFlow, options: SyncOptions): Promise<Counts> {
+    const counts: Counts = { fetched: 0, inserted: 0, duplicates: 0, filtered: 0, failed: 0 };
+    const filtering = hasActiveFilter(options.filters);
+    const limit = Math.max(1, options.maxPerRun);
+    {
       const lock = await client.getMailboxLock('INBOX');
       try {
         const found = await client.search(
@@ -219,8 +238,6 @@ export class MailSyncService {
       } finally {
         lock.release();
       }
-    } finally {
-      await client.logout().catch(() => client.close());
     }
   }
 }

@@ -6,7 +6,7 @@ import { attachmentRecognition, emailAttachment, type AttachmentRecognitionRow }
 import { loadPrompt } from '../llm/prompts';
 import { LlmService } from '../llm/llm.service';
 import { STORAGE, type Storage } from '../storage/storage';
-import { canAttempt, extractPdfText, planRecognition, prepareImage } from './recognition';
+import { canAttempt, extractPdfPageImages, extractPdfText, planRecognition, prepareImage, scannedPdfPrompt } from './recognition';
 
 type RecognitionPatch = Omit<typeof attachmentRecognition.$inferInsert, 'sha256'>;
 
@@ -76,14 +76,37 @@ export class RecognitionService {
       if (item.kind === 'pdf') {
         try {
           const text = await extractPdfText(content);
-          await this.save(
-            att.sha256,
-            text
-              ? { status: 'succeeded', text, reason: null, attempts, provider: 'local', model: 'unpdf' }
-              : { status: 'unsupported', text: null, reason: 'no_text_layer', attempts },
-          );
+          if (text) {
+            await this.save(att.sha256, { status: 'succeeded', text, reason: null, attempts, provider: 'local', model: 'unpdf' });
+            continue;
+          }
+          const pages = await extractPdfPageImages(content);
+          if (!pages.length) {
+            await this.save(att.sha256, { status: 'unsupported', text: null, reason: 'no_text_layer', attempts });
+          } else if (!visionReady) {
+            await this.save(att.sha256, { status: 'failed', reason: 'vision_not_configured', attempts: attempts - 1 });
+          } else {
+            const base = loadPrompt('vision');
+            const parts: string[] = [];
+            let used = { provider: '', model: '' };
+            for (const [p, image] of pages.entries()) {
+              const { text: pageText, config } = await this.llm.vision(
+                'vision',
+                { prompt: scannedPdfPrompt(base, p + 1), images: [image], maxTokens: 800 },
+                { emailId },
+              );
+              used = config;
+              if (pageText) parts.push(pages.length > 1 ? `[Page ${p + 1}] ${pageText}` : pageText);
+            }
+            await this.save(
+              att.sha256,
+              parts.length
+                ? { status: 'succeeded', text: `[Scanned PDF, read by the vision model]\n${parts.join('\n')}`, reason: null, attempts, ...used }
+                : { status: 'failed', reason: 'empty_result', attempts },
+            );
+          }
         } catch (error) {
-          this.logger.warn(`PDF 解析失败 ${att.id}: ${String(error)}`);
+          this.logger.warn(`PDF 识别失败 ${att.id}: ${error instanceof Error ? error.message : String(error)}`);
           await this.save(att.sha256, { status: 'failed', reason: 'pdf_failed', attempts });
         }
         continue;

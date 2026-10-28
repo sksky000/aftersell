@@ -6,7 +6,7 @@ import { LlmOutputError, LlmService, stripJsonFence } from '../llm/llm.service';
 import { loadPrompt } from '../llm/prompts';
 import type { LLMProvider } from '../llm/provider';
 import { buildClassifyInput, classificationSchema, finalizeClassification, type RawClassification } from './classification';
-import { canAttempt, extractPdfText, planRecognition, prepareImage, truncatePdfText } from './recognition';
+import { canAttempt, extractPdfPageImages, extractPdfText, planRecognition, prepareImage, truncatePdfText } from './recognition';
 
 const raw = (patch: Partial<RawClassification> = {}): RawClassification => ({
   isOurProduct: true,
@@ -131,18 +131,44 @@ describe('recognition rules', () => {
     expect(text).toContain('Walmart receipt 12345');
     expect(truncatePdfText('a'.repeat(5000))).toMatch(/\[Extraction truncated/);
   });
+
+  it('scanned PDFs have no text, but their page image goes to the vision model', async () => {
+    const pdf = scannedPdf(400, 300);
+    expect(await extractPdfText(pdf)).toBe('');
+    const pages = await extractPdfPageImages(pdf);
+    expect(pages).toHaveLength(1);
+    const meta = await sharp(pages[0].data).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(['jpeg', 400, 300]);
+    expect(await extractPdfPageImages(minimalPdf('text only'))).toEqual([]);
+  });
 });
 
 /** 生成只含一行文字的合法 PDF */
 function minimalPdf(line: string): Buffer {
   const stream = `BT /F1 18 Tf 50 750 Td (${line}) Tj ET`;
-  const objects = [
+  return assemblePdf([
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
     `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-  ];
+  ]);
+}
+
+/** 生成只有一张 RGB 图片、没有文字层的“扫描件” PDF */
+function scannedPdf(width: number, height: number): Buffer {
+  const pixels = Buffer.alloc(width * height * 3, 0x80).toString('latin1');
+  const content = `q ${width} 0 0 ${height} 0 0 cm /Im1 Do Q`;
+  return assemblePdf([
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Contents 4 0 R /Resources << /XObject << /Im1 5 0 R >> >> >>`,
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+    `<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length ${pixels.length} >>\nstream\n${pixels}\nendstream`,
+  ]);
+}
+
+function assemblePdf(objects: string[]): Buffer {
   let body = '%PDF-1.4\n';
   const offsets: number[] = [];
   objects.forEach((obj, i) => {

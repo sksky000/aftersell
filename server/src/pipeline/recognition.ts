@@ -16,7 +16,7 @@ export const RECOGNITION_REASON_LABELS: Record<string, string> = {
   model_failed: '识图模型调用失败',
   empty_result: '模型没有返回内容',
   unreadable_image: '图片无法解码（如 HEIC 格式），请人工查看',
-  no_text_layer: 'PDF 没有文字层（可能是扫描件），请人工查看',
+  no_text_layer: 'PDF 既没有文字层也没有可识别的图片，请人工查看',
   pdf_failed: 'PDF 解析失败，请人工查看',
   video_manual_review: '视频暂不支持识别，请人工查看',
   limit_exceeded: '超出单封识别数量上限，请人工查看',
@@ -62,6 +62,32 @@ export function truncatePdfText(text: string): string {
   return clean.length > MAX_PDF_TEXT_LENGTH
     ? `${clean.slice(0, MAX_PDF_TEXT_LENGTH)}\n[Extraction truncated: inspect the original document for missing details.]`
     : clean;
+}
+
+const SCANNED_PDF_PAGES = 2;
+const MIN_PAGE_IMAGE_PIXELS = 10_000;
+
+/**
+ * 扫描版 PDF（收据常见）没有文字层：取前 2 页里最大的嵌入图片，转成 JPEG 交给识图。
+ * 不依赖 canvas 渲染，只取 PDF 里本来就有的图片。
+ */
+export async function extractPdfPageImages(content: Buffer): Promise<ImageInput[]> {
+  const { extractImages, getDocumentProxy } = await import('unpdf');
+  const pdf = await getDocumentProxy(new Uint8Array(content));
+  const pages: ImageInput[] = [];
+  for (let page = 1; page <= Math.min(pdf.numPages, SCANNED_PDF_PAGES); page += 1) {
+    const images = await extractImages(pdf, page);
+    const largest = images.sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    if (!largest || largest.width * largest.height < MIN_PAGE_IMAGE_PIXELS) continue;
+    const raw = Buffer.from(largest.data.buffer, largest.data.byteOffset, largest.data.byteLength);
+    const png = await sharp(raw, { raw: { width: largest.width, height: largest.height, channels: largest.channels } }).png().toBuffer();
+    pages.push(await prepareImage(png));
+  }
+  return pages;
+}
+
+export function scannedPdfPrompt(base: string, page: number): string {
+  return `${base}\n\nThis image is page ${page} of a scanned PDF the customer attached (often a receipt, order details or a form). Transcribe the text that matters for after-sales.`;
 }
 
 /** 本地提取 PDF 文字层，不调用模型 */

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.log
+
+# 妙搭旧代码与内部评审：只在本地参考，不进仓库（含收款账号、硬编码密钥、线上漏洞细节）
+legacy/
+docs/private/
+
+# 运行期数据
+data/
+backups/

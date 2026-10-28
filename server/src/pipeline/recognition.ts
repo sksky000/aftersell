@@ -48,7 +48,8 @@ export function canAttempt(row: AttachmentRecognitionRow | undefined, now: numbe
 
 /** 统一转成长边不超过 1568 的 JPEG，控制体积和 token */
 export async function prepareImage(content: Buffer): Promise<ImageInput> {
-  const data = await sharp(content, { animated: false })
+  // 手机照片常带少量损坏数据，浏览器照常显示；只在真正无法解码时失败
+  const data = await sharp(content, { animated: false, failOn: 'none' })
     .rotate()
     .resize({ width: MAX_IMAGE_EDGE, height: MAX_IMAGE_EDGE, fit: 'inside', withoutEnlargement: true })
     .flatten({ background: '#ffffff' })

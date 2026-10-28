@@ -1,10 +1,10 @@
 import { Inject, Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { Queue, Worker, type Job } from 'bullmq';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import Redis from 'ioredis';
 import { env } from '../config/env';
 import { DB, type Database } from '../db/db.module';
-import { emailMessage } from '../db/schema';
+import { attachmentRecognition, emailAttachment, emailMessage } from '../db/schema';
 import { LlmNotConfiguredError, LlmOutputError, LlmService } from '../llm/llm.service';
 import { LlmResponseError } from '../llm/provider';
 import { ClassifyService } from './classify.service';
@@ -90,6 +90,18 @@ export class ProcessQueue implements OnModuleInit, OnApplicationShutdown {
       .limit(BACKFILL_LIMIT);
     for (const row of rows) await this.enqueue(row.id);
     if (rows.length) this.logger.log(`待分类邮件已排队 ${rows.length} 封`);
+
+    // 分类时识图还没配好的邮件：识图可用后重新识别并重新分类（图片内容会影响凭证判断）
+    if (!(await this.llm.isAvailable('vision'))) return;
+    const waiting = await this.db
+      .selectDistinct({ id: emailAttachment.emailId })
+      .from(emailAttachment)
+      .innerJoin(attachmentRecognition, eq(attachmentRecognition.sha256, emailAttachment.sha256))
+      .innerJoin(emailMessage, eq(emailMessage.id, emailAttachment.emailId))
+      .where(and(eq(attachmentRecognition.reason, 'vision_not_configured'), ne(emailMessage.pipelineState, 'ingested')))
+      .limit(BACKFILL_LIMIT);
+    for (const row of waiting) await this.enqueue(row.id, true);
+    if (waiting.length) this.logger.log(`识图可用，补识图并重新分类 ${waiting.length} 封`);
   }
 
   private async process(job: Job<ProcessJobData>): Promise<void> {

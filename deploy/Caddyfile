@@ -1,10 +1,12 @@
 {
 	admin off
+	# 用 IP 访问时客户端不发 SNI，需要指定默认证书
+	default_sni {$SITE_HOST}
 }
 
-# SITE_ADDRESS：有域名填域名（TLS_ISSUER 填邮箱即自动申请证书）；
-# 暂时只有 IP 时填 https://<IP>，TLS_ISSUER=internal 用 Caddy 自签证书（浏览器会提示不受信任）
-{$SITE_ADDRESS} {
+# SITE_HOST：有域名填域名（TLS_ISSUER 填邮箱即自动申请证书）；
+# 暂时只有 IP 时填 IP，TLS_ISSUER=internal 用 Caddy 自签证书（浏览器会提示不受信任）
+https://{$SITE_HOST} {
 	tls {$TLS_ISSUER}
 	encode gzip
 	reverse_proxy app:3000

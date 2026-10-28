@@ -58,7 +58,7 @@ services:
       - '80:80'
       - '443:443'
     environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:?请在 .env 中设置 SITE_ADDRESS}
+      SITE_HOST: ${SITE_HOST:?请在 .env 中设置 SITE_HOST}
       TLS_ISSUER: ${TLS_ISSUER:-internal}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro

@@ -28,7 +28,7 @@ npm test
 ```bash
 git clone https://github.com/sksky000/aftersell /srv/aftersell
 cd /srv/aftersell
-deploy/init-env.sh https://<服务器IP或域名> <管理员登录邮箱>   # 生成 .env 与随机密钥
+deploy/init-env.sh <服务器IP或域名> <管理员登录邮箱>   # 生成 .env 与随机密钥
 mkdir -p data/attachments && chown 1000:1000 data/attachments
 docker compose up -d --build
 ```
@@ -37,7 +37,7 @@ docker compose up -d --build
 
 更新：`deploy/deploy.sh`（git pull + 重建 + 重启，数据不受影响）。
 
-只有 IP 时 Caddy 使用自签证书，浏览器会提示"不安全"，选择继续访问即可；有域名后把 `SITE_ADDRESS` 改成域名、`TLS_ISSUER` 改成邮箱，自动申请正式证书。
+只有 IP 时 Caddy 使用自签证书，浏览器会提示"不安全"，选择继续访问即可；有域名后把 `SITE_HOST` 改成域名、`TLS_ISSUER` 改成邮箱，自动申请正式证书。
 
 ## 角色
 

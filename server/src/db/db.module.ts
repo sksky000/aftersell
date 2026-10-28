@@ -1,4 +1,4 @@
-import { Global, Inject, Logger, Module, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Global, Inject, Logger, Module, OnApplicationShutdown } from '@nestjs/common';
 import * as path from 'node:path';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -20,25 +20,20 @@ export type Database = NodePgDatabase<typeof schema>;
     {
       provide: DB,
       inject: [PG_POOL],
-      useFactory: (pool: Pool): Database => drizzle(pool, { schema }),
+      // 迁移放在工厂里：任何拿到 DB 的模块（包括启动即跑的队列）都在迁移完成之后才初始化
+      useFactory: async (pool: Pool): Promise<Database> => {
+        const db = drizzle(pool, { schema });
+        // dist/db/db.module.js → server/drizzle
+        await migrate(db, { migrationsFolder: path.resolve(__dirname, '../../drizzle') });
+        new Logger('DbModule').log('数据库迁移已完成');
+        return db;
+      },
     },
   ],
   exports: [DB, PG_POOL],
 })
-export class DbModule implements OnModuleInit, OnApplicationShutdown {
-  private readonly logger = new Logger(DbModule.name);
-
-  constructor(
-    @Inject(DB) private readonly db: Database,
-    @Inject(PG_POOL) private readonly pool: Pool,
-  ) {}
-
-  async onModuleInit(): Promise<void> {
-    // dist/db/db.module.js → server/drizzle
-    const migrationsFolder = path.resolve(__dirname, '../../drizzle');
-    await migrate(this.db, { migrationsFolder });
-    this.logger.log('数据库迁移已完成');
-  }
+export class DbModule implements OnApplicationShutdown {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
   async onApplicationShutdown(): Promise<void> {
     await this.pool.end();

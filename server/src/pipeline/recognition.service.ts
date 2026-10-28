@@ -6,7 +6,7 @@ import { attachmentRecognition, emailAttachment, type AttachmentRecognitionRow }
 import { loadPrompt } from '../llm/prompts';
 import { LlmService } from '../llm/llm.service';
 import { STORAGE, type Storage } from '../storage/storage';
-import { canAttempt, extractPdfPageImages, extractPdfText, planRecognition, prepareImage, scannedPdfPrompt } from './recognition';
+import { canAttempt, renderPdfPages, extractPdfText, planRecognition, prepareImage, scannedPdfPrompt } from './recognition';
 
 type RecognitionPatch = Omit<typeof attachmentRecognition.$inferInsert, 'sha256'>;
 
@@ -80,7 +80,7 @@ export class RecognitionService {
             await this.save(att.sha256, { status: 'succeeded', text, reason: null, attempts, provider: 'local', model: 'unpdf' });
             continue;
           }
-          const pages = await extractPdfPageImages(content);
+          const pages = await renderPdfPages(content);
           if (!pages.length) {
             await this.save(att.sha256, { status: 'unsupported', text: null, reason: 'no_text_layer', attempts });
           } else if (!visionReady) {

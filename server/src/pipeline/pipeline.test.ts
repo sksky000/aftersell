@@ -6,7 +6,7 @@ import { LlmOutputError, LlmService, stripJsonFence } from '../llm/llm.service';
 import { loadPrompt } from '../llm/prompts';
 import type { LLMProvider } from '../llm/provider';
 import { buildClassifyInput, classificationSchema, finalizeClassification, type RawClassification } from './classification';
-import { canAttempt, extractPdfPageImages, extractPdfText, planRecognition, prepareImage, truncatePdfText } from './recognition';
+import { canAttempt, renderPdfPages, extractPdfText, planRecognition, prepareImage, truncatePdfText } from './recognition';
 
 const raw = (patch: Partial<RawClassification> = {}): RawClassification => ({
   isOurProduct: true,
@@ -132,14 +132,13 @@ describe('recognition rules', () => {
     expect(truncatePdfText('a'.repeat(5000))).toMatch(/\[Extraction truncated/);
   });
 
-  it('scanned PDFs have no text, but their page image goes to the vision model', async () => {
+  it('PDFs without a text layer are rendered page by page for the vision model', async () => {
     const pdf = scannedPdf(400, 300);
     expect(await extractPdfText(pdf)).toBe('');
-    const pages = await extractPdfPageImages(pdf);
+    const pages = await renderPdfPages(pdf);
     expect(pages).toHaveLength(1);
     const meta = await sharp(pages[0].data).metadata();
-    expect([meta.format, meta.width, meta.height]).toEqual(['jpeg', 400, 300]);
-    expect(await extractPdfPageImages(minimalPdf('text only'))).toEqual([]);
+    expect([meta.format, meta.width, meta.height]).toEqual(['jpeg', 1568, 1176]);
   });
 });
 

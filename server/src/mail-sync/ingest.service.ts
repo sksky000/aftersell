@@ -7,7 +7,7 @@ import type { IncomingEmail } from '../mail/parse-incoming';
 import { STORAGE, type Storage, type StoredObject } from '../storage/storage';
 import { resolveThreadId } from './thread-resolver';
 
-export type IngestResult = 'inserted' | 'duplicate';
+export type IngestResult = { status: 'inserted'; id: string } | { status: 'duplicate' };
 
 @Injectable()
 export class IngestService {
@@ -26,12 +26,12 @@ export class IngestService {
       .from(emailMessage)
       .where(eq(emailMessage.messageId, email.messageId))
       .limit(1);
-    if (existing) return 'duplicate';
+    if (existing) return { status: 'duplicate' };
 
     const stored: StoredObject[] = [];
     for (const att of email.attachments) stored.push(await this.storage.putContent(att.content));
 
-    return this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx): Promise<IngestResult> => {
       const threadId = await resolveThreadId(tx, email);
       const [row] = await tx
         .insert(emailMessage)
@@ -51,7 +51,7 @@ export class IngestService {
         })
         .onConflictDoNothing({ target: emailMessage.messageId })
         .returning({ id: emailMessage.id });
-      if (!row) return 'duplicate';
+      if (!row) return { status: 'duplicate' };
 
       if (stored.length) {
         await tx.insert(emailAttachment).values(
@@ -68,7 +68,7 @@ export class IngestService {
           })),
         );
       }
-      return 'inserted';
+      return { status: 'inserted', id: row.id };
     });
   }
 }

@@ -11,6 +11,8 @@
 - `server/` NestJS 10 + Drizzle + PostgreSQL；启动时自动跑 `server/drizzle/` 迁移
   - `src/mail/` 从妙搭直接迁来的纯函数（案件归组、热线、转发、引用剥离），带 vitest 回归；热线 / 领导地址经 `sender-directory` 从设置读取，不写死在代码里
   - `src/mail-sync/` BullMQ 拉信队列（worker 并发 1）+ 幂等入库；`src/emails/` 看板与详情接口；`src/storage/` 附件存储接口（本地磁盘，按 sha256 寻址）
+  - `src/llm/` 模型层：槽位配置存 setting 表，适配器按 .env 的 key 创建，每次调用写 llm_call；`prompts/` 下是各槽位 system prompt，客户邮件放在 user turn 的 `<email>` 标签里
+  - `src/pipeline/` 处理队列：识图 / PDF 提取 → 分类 → 确定性后处理（`finalizeClassification`）→ 客户裁决覆盖
 - `web/` React 19 + Vite + Tailwind v4 + shadcn 组件；生产构建由 server 静态托管
 - `deploy/` Caddyfile、部署脚本
 

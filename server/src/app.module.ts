@@ -11,6 +11,8 @@ import { StorageModule } from './storage/storage.module';
 import { SettingsModule } from './settings/settings.module';
 import { MailSyncModule } from './mail-sync/mail-sync.module';
 import { EmailsModule } from './emails/emails.module';
+import { LlmModule } from './llm/llm.module';
+import { PipelineModule } from './pipeline/pipeline.module';
 
 function staticWeb(): DynamicModule[] {
   const dir = env().WEB_DIST_DIR;
@@ -27,6 +29,8 @@ function staticWeb(): DynamicModule[] {
     MailConfigModule,
     SettingsModule,
     MailSyncModule,
+    LlmModule,
+    PipelineModule,
     EmailsModule,
     ...staticWeb(),
   ],

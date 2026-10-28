@@ -46,6 +46,27 @@ export type EmailStatus = (typeof EMAIL_STATUSES)[number];
 export const EVIDENCE_STATUSES = ['complete', 'partial', 'missing', 'unknown'] as const;
 export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
 
+/** 缺失凭证项（英文 code，界面显示中文） */
+export const MISSING_EVIDENCE = ['photo_or_video', 'purchase_proof', 'model_or_serial', 'shipping_info'] as const;
+export type MissingEvidence = (typeof MISSING_EVIDENCE)[number];
+
+export const MISSING_EVIDENCE_LABELS: Record<MissingEvidence, string> = {
+  photo_or_video: '照片或视频',
+  purchase_proof: '购买凭证',
+  model_or_serial: '车型或序列号',
+  shipping_info: '收件人信息',
+};
+
+export const LANGUAGES = ['en', 'zh', 'other'] as const;
+export type Language = (typeof LANGUAGES)[number];
+
+/** 客户级裁决：人工确认的事实，覆盖模型判断 */
+export const ADJUDICATION_FACTS = ['non_phoenix_product'] as const;
+export type AdjudicationFact = (typeof ADJUDICATION_FACTS)[number];
+export const ADJUDICATION_LABELS: Record<AdjudicationFact, string> = {
+  non_phoenix_product: '该客户的车不是我方产品',
+};
+
 /** 入库后的处理进度：ingested → classified → drafted；failed 表示某一步出错待人工 */
 export const PIPELINE_STATES = ['ingested', 'classified', 'drafted', 'failed'] as const;
 export type PipelineState = (typeof PIPELINE_STATES)[number];
@@ -150,6 +171,17 @@ export const emailListQuerySchema = z
   .strict();
 export type EmailListQuery = z.infer<typeof emailListQuerySchema>;
 
+export const RECOGNITION_STATUSES = ['succeeded', 'failed', 'unsupported', 'pending'] as const;
+export type RecognitionStatus = (typeof RECOGNITION_STATUSES)[number];
+
+export interface AttachmentRecognitionDto {
+  status: RecognitionStatus;
+  /** 图片：模型的事实描述；PDF：提取出的文本 */
+  text: string | null;
+  /** 失败或未识别的原因（中文） */
+  reason: string | null;
+}
+
 export interface EmailAttachmentDto {
   id: string;
   filename: string;
@@ -158,7 +190,34 @@ export interface EmailAttachmentDto {
   isInline: boolean;
   /** 需登录的下载地址 */
   url: string;
+  recognition: AttachmentRecognitionDto;
 }
+
+export interface ClassifyDetail {
+  /** 判为非我方产品时的原因 */
+  notOurProductReason: string | null;
+  /** 命中了客户裁决 */
+  adjudicated: boolean;
+  provider: string;
+  model: string;
+}
+
+export interface CustomerAdjudicationDto {
+  id: string;
+  customerEmail: string;
+  factType: AdjudicationFact;
+  note: string | null;
+  createdAt: string;
+}
+
+export const createAdjudicationSchema = z
+  .object({
+    customerEmail: z.string().trim().toLowerCase().email('客户邮箱格式不正确'),
+    factType: z.enum(ADJUDICATION_FACTS),
+    note: z.string().trim().max(500).optional(),
+  })
+  .strict();
+export type CreateAdjudicationRequest = z.infer<typeof createAdjudicationSchema>;
 
 export interface EmailListItem {
   id: string;
@@ -169,12 +228,17 @@ export interface EmailListItem {
   createdAt: string;
   status: EmailStatus;
   pipelineState: PipelineState;
+  /** 分类失败或未能分类的原因 */
+  pipelineError: string | null;
   urgency: Urgency;
   partType: PartType;
   category: Category;
   evidenceStatus: EvidenceStatus;
-  missingEvidence: string[];
+  missingEvidence: MissingEvidence[];
   isSafetyHazard: boolean;
+  isOurProduct: boolean;
+  /** 分类置信度 0-100 */
+  confidence: number | null;
   summary: string | null;
   /** 正文前 200 字，分类前用于卡片预览 */
   preview: string;
@@ -195,6 +259,13 @@ export interface EmailDetailDto extends EmailListItem {
   threadId: string | null;
   messageId: string;
   attachments: EmailAttachmentDto[];
+  isComplaint: boolean;
+  language: string;
+  classifiedAt: string | null;
+  classifyDetail: ClassifyDetail | null;
+  /** 用于客户裁决的客户标识：普通来信为发件人，热线 / 领导转发为解析出的客户邮箱；无法确定时为 null */
+  customerEmail: string | null;
+  adjudications: CustomerAdjudicationDto[];
 }
 
 export interface ThreadItemDto {

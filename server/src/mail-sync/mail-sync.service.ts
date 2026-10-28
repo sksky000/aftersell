@@ -9,6 +9,7 @@ import { describeMailError } from '../mail-config/mail-endpoint';
 import { parseIncoming } from '../mail/parse-incoming';
 import { selectPendingUids } from '../mail/pending-uids';
 import { describeFilters, hasActiveFilter, passesHeaderFilter, passesMessageFilter } from '../mail/sync-filters';
+import { ProcessQueue } from '../pipeline/process.queue';
 import { IngestService } from './ingest.service';
 
 const TIMEOUT_MS = 30_000;
@@ -71,6 +72,7 @@ export class MailSyncService {
     @Inject(DB) private readonly db: Database,
     private readonly mailConfig: MailConfigService,
     private readonly ingest: IngestService,
+    private readonly processQueue: ProcessQueue,
   ) {}
 
   async lastRun(): Promise<SyncRunDto | null> {
@@ -187,8 +189,15 @@ export class MailSyncService {
                 continue;
               }
               const result = await this.ingest.ingest(email);
-              if (result === 'inserted') counts.inserted += 1;
-              else counts.duplicates += 1;
+              if (result.status === 'inserted') {
+                counts.inserted += 1;
+                // 排队失败不影响入库结果，服务重启时会补跑待分类邮件
+                await this.processQueue
+                  .enqueue(result.id)
+                  .catch((e: unknown) => this.logger.warn(`分类排队失败 email=${result.id}: ${describeMailError(e)}`));
+              } else {
+                counts.duplicates += 1;
+              }
               done.push(msg.uid);
             } catch (error) {
               counts.failed += 1;

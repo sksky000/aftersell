@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+/** 空字符串视为未配置 */
+const optionalSecret = z
+  .string()
+  .optional()
+  .transform((v) => v?.trim() || undefined);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().default(3000),
@@ -27,6 +33,12 @@ const envSchema = z.object({
   WEB_DIST_DIR: z.string().optional(),
   /** 附件存放目录（相对路径按工作目录解析）；容器内挂载为数据卷 */
   ATTACHMENT_DIR: z.string().default('data/attachments'),
+  /** 模型服务 key：只放服务器 .env；未配置的服务在设置页显示为不可用 */
+  DEEPSEEK_API_KEY: optionalSecret,
+  DEEPSEEK_BASE_URL: z.string().url().default('https://api.deepseek.com'),
+  DASHSCOPE_API_KEY: optionalSecret,
+  DASHSCOPE_BASE_URL: z.string().url().default('https://dashscope.aliyuncs.com/compatible-mode/v1'),
+  ANTHROPIC_API_KEY: optionalSecret,
 });
 
 export type Env = z.infer<typeof envSchema>;

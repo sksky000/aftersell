@@ -15,7 +15,11 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import {
+  ADJUDICATION_FACTS,
   CATEGORIES,
+  LLM_SLOTS,
+  type ClassifyDetail,
+  type MissingEvidence,
   DEFAULT_SYNC_INTERVAL_MINUTES,
   EMAIL_STATUSES,
   EVIDENCE_STATUSES,
@@ -131,8 +135,12 @@ export const emailMessage = pgTable(
     language: varchar('language', { length: 16 }).notNull().default('en'),
     evidenceStatus: evidenceStatusEnum('evidence_status').notNull().default('unknown'),
     /** 缺失凭证的英文 code 数组 */
-    missingEvidence: jsonb('missing_evidence').$type<string[]>().notNull().default([]),
+    missingEvidence: jsonb('missing_evidence').$type<MissingEvidence[]>().notNull().default([]),
     isSafetyHazard: boolean('is_safety_hazard').notNull().default(false),
+    /** 分类置信度 0-100 */
+    confidence: integer('confidence'),
+    classifyDetail: jsonb('classify_detail').$type<ClassifyDetail>(),
+    /** M3 草稿置信度 */
     draftConfidence: integer('draft_confidence'),
     classifiedAt: timestamp('classified_at', { withTimezone: true }),
     ...timestamps,
@@ -190,7 +198,63 @@ export const syncRun = pgTable(
   (t) => [index('sync_run_started_at_idx').on(t.startedAt)],
 );
 
+export const recognitionStatusEnum = pgEnum('recognition_status', ['succeeded', 'failed', 'unsupported']);
+export const adjudicationFactEnum = pgEnum('adjudication_fact', ADJUDICATION_FACTS);
+export const llmSlotEnum = pgEnum('llm_slot', LLM_SLOTS);
+
+/**
+ * 附件内容识别结果，按文件 sha256 存一份：同一张图在跟进邮件里再出现不会重复调用模型。
+ * 每次调用前先记一次尝试，失败最多重试 3 次。
+ */
+export const attachmentRecognition = pgTable('attachment_recognition', {
+  sha256: char('sha256', { length: 64 }).primaryKey(),
+  status: recognitionStatusEnum('status').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  text: text('text'),
+  /** 失败原因 code，界面翻译为中文 */
+  reason: varchar('reason', { length: 64 }),
+  provider: varchar('provider', { length: 32 }),
+  model: varchar('model', { length: 100 }),
+  attemptedAt: timestamp('attempted_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** 客户级裁决：人工确认的事实，分类时覆盖模型判断 */
+export const customerAdjudication = pgTable(
+  'customer_adjudication',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerEmail: varchar('customer_email', { length: 320 }).notNull(),
+    factType: adjudicationFactEnum('fact_type').notNull(),
+    note: text('note'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('customer_adjudication_email_fact_uq').on(sql`lower(${t.customerEmail})`, t.factType)],
+);
+
+/** 每次模型调用：用于成本统计与问题回放（不存原文，只存输入摘要哈希） */
+export const llmCall = pgTable(
+  'llm_call',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slot: llmSlotEnum('slot').notNull(),
+    provider: varchar('provider', { length: 32 }).notNull(),
+    model: varchar('model', { length: 100 }).notNull(),
+    emailId: uuid('email_id').references(() => emailMessage.id, { onDelete: 'set null' }),
+    ok: boolean('ok').notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    durationMs: integer('duration_ms').notNull(),
+    inputHash: char('input_hash', { length: 64 }).notNull(),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('llm_call_created_at_idx').on(t.createdAt), index('llm_call_email_id_idx').on(t.emailId)],
+);
+
 export type UserRow = typeof users.$inferSelect;
+export type AttachmentRecognitionRow = typeof attachmentRecognition.$inferSelect;
+export type CustomerAdjudicationRow = typeof customerAdjudication.$inferSelect;
 export type EmailAccountRow = typeof emailAccount.$inferSelect;
 export type EmailMessageRow = typeof emailMessage.$inferSelect;
 export type EmailAttachmentRow = typeof emailAttachment.$inferSelect;

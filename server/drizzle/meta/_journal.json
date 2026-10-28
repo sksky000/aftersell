@@ -15,6 +15,13 @@
       "when": 1793168751202,
       "tag": "0001_m1_mail_ingest",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793172131875,
+      "tag": "0002_m2_classify",
+      "breakpoints": true
     }
   ]
 }

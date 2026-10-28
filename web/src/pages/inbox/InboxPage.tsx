@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Inbox, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { PART_TYPE_LABELS, PART_TYPE_ORDER, type EmailListItem, type SyncRunDto } from '@aftersell/shared';
@@ -21,17 +21,20 @@ interface Section {
 /** 待分类 → 紧急 → 按零件分组的待审核 → 其他状态 */
 function groupEmails(emails: EmailListItem[]): Section[] {
   const unclassified: EmailListItem[] = [];
+  const failed: EmailListItem[] = [];
   const urgent: EmailListItem[] = [];
   const byPart = new Map<string, EmailListItem[]>();
   const handled: EmailListItem[] = [];
   for (const e of emails) {
     if (e.status !== 'pending_review') handled.push(e);
     else if (e.pipelineState === 'ingested') unclassified.push(e);
+    else if (e.pipelineState === 'failed') failed.push(e);
     else if (e.urgency === 'urgent' || e.urgency === 'high') urgent.push(e);
     else byPart.set(e.partType, [...(byPart.get(e.partType) ?? []), e]);
   }
   return [
-    { key: 'unclassified', title: '待分类', hint: '封，接入模型（M2）后自动分类', items: unclassified },
+    { key: 'failed', title: '分类失败', hint: '封，需人工判断或重新分类', items: failed },
+    { key: 'unclassified', title: '待分类', hint: '封，正在识别附件与分类', items: unclassified },
     { key: 'urgent', title: '紧急 & 重要', hint: '封待处理', items: urgent },
     ...PART_TYPE_ORDER.map((part) => ({
       key: part,
@@ -71,6 +74,14 @@ export default function InboxPage() {
     [refetch],
   );
   const sync = useSyncStatus(onRunFinished);
+
+  // 有待分类邮件时定时刷新，分类结果陆续出现
+  const pendingClassify = (stats?.unclassified ?? 0) > 0;
+  useEffect(() => {
+    if (!pendingClassify) return;
+    const timer = window.setInterval(() => void refetch(), 8000);
+    return () => window.clearInterval(timer);
+  }, [pendingClassify, refetch]);
   const sections = useMemo(() => groupEmails(emails), [emails]);
   const filtered = JSON.stringify(filters) !== JSON.stringify(DEFAULT_FILTERS);
 

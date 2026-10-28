@@ -56,6 +56,7 @@ export const api = {
   post: <T>(url: string, body?: unknown) => request<T>('POST', url, body ?? {}),
   put: <T>(url: string, body: unknown) => request<T>('PUT', url, body),
   patch: <T>(url: string, body: unknown) => request<T>('PATCH', url, body),
+  delete: <T = void>(url: string) => request<T>('DELETE', url),
 };
 
 export function messageOf(error: unknown): string {

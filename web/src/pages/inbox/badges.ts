@@ -24,3 +24,5 @@ export const SAFETY_HAZARD_BADGE_CLASS = 'bg-red-50 text-red-700 border-red-300'
 export const THREAD_BADGE_CLASS = 'border-blue-200 bg-blue-50 text-blue-700';
 export const FOLLOW_UP_BADGE_CLASS = 'border-amber-200 bg-amber-50 text-amber-700';
 export const UNCLASSIFIED_BADGE_CLASS = 'border-violet-200 bg-violet-50 text-violet-700';
+export const FAILED_BADGE_CLASS = 'border-red-200 bg-red-50 text-red-700';
+export const NOT_OURS_BADGE_CLASS = 'border-gray-300 bg-gray-100 text-gray-600';

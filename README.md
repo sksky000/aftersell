@@ -5,6 +5,11 @@
 当前进度：**M1 拉信入库**——
 - M0：账号密码登录、三级角色、用户管理、邮箱配置（授权码 AES-256-GCM 加密 + 主机白名单）+ 连接测试、Docker Compose 部署。
 - M1：IMAP 拉取队列（BullMQ，定时 + 手动）、按 Message-ID 幂等入库、案件线程归组、附件落盘（图片 / PDF / 视频）、三组拉取开关、邮件看板与详情页。
+- M2：模型层（任务槽位 + DeepSeek / 百炼 / Claude 适配器，调用记入 llm_call）、处理队列（识图 → 分类，失败重试与兜底）、本地 PDF 文字提取、15 类分类 JSON 输出、客户裁决覆盖、置信度。
+
+## 模型
+
+在服务器 `.env` 填写要用的服务的 key（`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `ANTHROPIC_API_KEY`），`docker compose up -d` 重启后，在 设置 → 模型 为每个任务选服务和模型，点“测试”确认可用。system prompt 在 `server/prompts/`。
 
 ## 本地开发
 

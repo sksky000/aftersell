@@ -18,6 +18,8 @@ import {
   SAFETY_HAZARD_BADGE_CLASS,
   STATUS_BADGE_CLASS,
   THREAD_BADGE_CLASS,
+  FAILED_BADGE_CLASS,
+  NOT_OURS_BADGE_CLASS,
   UNCLASSIFIED_BADGE_CLASS,
   URGENCY_BADGE_CLASS,
 } from './badges';
@@ -30,7 +32,7 @@ export function senderOf(email: Pick<EmailListItem, 'fromName' | 'fromAddress'>)
 }
 
 export default function EmailCard({ email }: { email: EmailListItem }) {
-  const classified = email.pipelineState !== 'ingested';
+  const classified = email.pipelineState === 'classified' || email.pipelineState === 'drafted';
   return (
     <Link to={`/emails/${email.id}`} className="block">
       <Card className="shadow-none hover:border-primary/40 transition-colors">
@@ -44,8 +46,17 @@ export default function EmailCard({ email }: { email: EmailListItem }) {
                     {URGENCY_LABELS[email.urgency]}
                   </Badge>
                 ) : (
-                  <Badge variant="outline" className={UNCLASSIFIED_BADGE_CLASS}>
+                  <Badge
+                    variant="outline"
+                    className={email.pipelineState === 'failed' ? FAILED_BADGE_CLASS : UNCLASSIFIED_BADGE_CLASS}
+                    title={email.pipelineError ?? undefined}
+                  >
                     {PIPELINE_LABELS[email.pipelineState]}
+                  </Badge>
+                )}
+                {classified && !email.isOurProduct && (
+                  <Badge variant="outline" className={NOT_OURS_BADGE_CLASS}>
+                    非我方产品
                   </Badge>
                 )}
                 {email.isSafetyHazard && (
@@ -76,6 +87,9 @@ export default function EmailCard({ email }: { email: EmailListItem }) {
                 )}
               </div>
               <div className="mt-1.5 text-xs text-muted-foreground truncate">{senderOf(email)}</div>
+              {email.pipelineError && !classified && (
+                <div className="mt-1.5 text-xs text-destructive">{email.pipelineError}</div>
+              )}
               {(email.summary || email.preview) && (
                 <p className="mt-2 text-sm text-foreground/80 line-clamp-2 break-words">{email.summary || email.preview}</p>
               )}
@@ -87,6 +101,11 @@ export default function EmailCard({ email }: { email: EmailListItem }) {
                     {EVIDENCE_LABELS[email.evidenceStatus]}
                     {email.missingEvidence.length > 0 && `·缺${email.missingEvidence.length}项`}
                   </Badge>
+                  {email.confidence !== null && (
+                    <span className="text-xs text-muted-foreground" title="分类置信度">
+                      置信度 {email.confidence}
+                    </span>
+                  )}
                 </div>
               )}
             </div>

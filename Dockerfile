@@ -24,6 +24,7 @@ COPY --from=build /app/shared/dist shared/dist
 COPY --from=build /app/server/package.json server/
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/server/drizzle server/drizzle
+COPY --from=build /app/server/prompts server/prompts
 COPY --from=build /app/web/dist web/dist
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node

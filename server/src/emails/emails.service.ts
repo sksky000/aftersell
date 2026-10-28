@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type {
+  AttachmentRecognitionDto,
   EmailAttachmentDto,
   EmailDetailDto,
   EmailListItem,
@@ -10,8 +11,17 @@ import type {
   ThreadItemDto,
 } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
-import { emailAttachment, emailMessage, type EmailAttachmentRow, type EmailMessageRow } from '../db/schema';
+import {
+  emailAttachment,
+  emailMessage,
+  type AttachmentRecognitionRow,
+  type EmailAttachmentRow,
+  type EmailMessageRow,
+} from '../db/schema';
 import { stripQuotedHistory } from '../mail/quote-strip';
+import { AdjudicationService, adjudicationKey } from '../pipeline/adjudication.service';
+import { planRecognition, RECOGNITION_REASON_LABELS, type RecognitionPlanItem } from '../pipeline/recognition';
+import { RecognitionService } from '../pipeline/recognition.service';
 import { STORAGE, type Storage } from '../storage/storage';
 
 const PREVIEW_SOURCE_CHARS = 4000;
@@ -27,12 +37,15 @@ const listColumns = {
   createdAt: emailMessage.createdAt,
   status: emailMessage.status,
   pipelineState: emailMessage.pipelineState,
+  pipelineError: emailMessage.pipelineError,
   urgency: emailMessage.urgency,
   partType: emailMessage.partType,
   category: emailMessage.category,
   evidenceStatus: emailMessage.evidenceStatus,
   missingEvidence: emailMessage.missingEvidence,
   isSafetyHazard: emailMessage.isSafetyHazard,
+  isOurProduct: emailMessage.isOurProduct,
+  confidence: emailMessage.confidence,
   summary: emailMessage.summary,
   isFollowUp: emailMessage.isFollowUp,
   threadId: emailMessage.threadId,
@@ -57,8 +70,20 @@ function toListItem(row: ListRow, threadSize: number, attachmentCount: number): 
   };
 }
 
-function toAttachmentDto(row: EmailAttachmentRow): EmailAttachmentDto {
+function reasonLabel(code: string | null): string | null {
+  return code ? RECOGNITION_REASON_LABELS[code] ?? code : null;
+}
+
+function toRecognitionDto(plan: RecognitionPlanItem, row: AttachmentRecognitionRow | undefined): AttachmentRecognitionDto {
+  if ('skip' in plan) return { status: 'unsupported', text: null, reason: reasonLabel(plan.skip) };
+  if (!row) return { status: 'pending', text: null, reason: null };
+  if (row.status === 'succeeded') return { status: 'succeeded', text: row.text, reason: null };
+  return { status: row.status, text: null, reason: reasonLabel(row.reason) };
+}
+
+function toAttachmentDto(row: EmailAttachmentRow, recognition: AttachmentRecognitionDto): EmailAttachmentDto {
   return {
+    recognition,
     id: row.id,
     filename: row.filename,
     contentType: row.contentType,
@@ -77,6 +102,8 @@ export class EmailsService {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(STORAGE) private readonly storage: Storage,
+    private readonly recognition: RecognitionService,
+    private readonly adjudications: AdjudicationService,
   ) {}
 
   async list(q: EmailListQuery): Promise<EmailListResponse> {
@@ -155,7 +182,13 @@ export class EmailsService {
       .from(emailAttachment)
       .where(inArray(emailAttachment.emailId, emailIds))
       .orderBy(asc(emailAttachment.position));
-    for (const row of rows) map.set(row.emailId, [...(map.get(row.emailId) ?? []), toAttachmentDto(row)]);
+    const recognized = await this.recognition.rowsFor(rows.map((r) => r.sha256));
+    const byEmail = new Map<string, EmailAttachmentRow[]>();
+    for (const row of rows) byEmail.set(row.emailId, [...(byEmail.get(row.emailId) ?? []), row]);
+    for (const [emailId, files] of byEmail) {
+      const plan = planRecognition(files);
+      map.set(emailId, files.map((f, i) => toAttachmentDto(f, toRecognitionDto(plan[i], recognized.get(f.sha256)))));
+    }
     return map;
   }
 
@@ -166,7 +199,14 @@ export class EmailsService {
       this.attachmentsOf([row.id]),
     ]);
     const files = attachments.get(row.id) ?? [];
+    const customerEmail = adjudicationKey(row);
     return {
+      isComplaint: row.isComplaint,
+      language: row.language,
+      classifiedAt: row.classifiedAt?.toISOString() ?? null,
+      classifyDetail: row.classifyDetail ?? null,
+      customerEmail,
+      adjudications: await this.adjudications.listFor(customerEmail),
       ...toListItem({ ...row, bodyHead: row.bodyText.slice(0, PREVIEW_SOURCE_CHARS) }, row.threadId ? threadSizes.get(row.threadId) ?? 1 : 1, files.length),
       bodyText: row.bodyText,
       replyTo: row.replyTo,

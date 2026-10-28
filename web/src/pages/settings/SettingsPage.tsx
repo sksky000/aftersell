@@ -4,6 +4,7 @@ import ChangePasswordForm from '@/components/ChangePasswordForm';
 import { useAuth } from '@/auth';
 import MailConfigCard from './MailConfigCard';
 import MailRoutingCard from './MailRoutingCard';
+import LlmSettingsCard from './LlmSettingsCard';
 import UsersCard from './UsersCard';
 
 export default function SettingsPage() {
@@ -19,6 +20,7 @@ export default function SettingsPage() {
         </div>
       ),
     },
+    can('supervisor') && { key: 'llm', label: '模型', content: <LlmSettingsCard /> },
     can('admin') && { key: 'users', label: '用户管理', content: <UsersCard /> },
     { key: 'account', label: '我的账号', content: <ChangePasswordForm /> },
   ].filter(Boolean) as { key: string; label: string; content: React.ReactNode }[];

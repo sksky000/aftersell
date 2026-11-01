@@ -5,9 +5,8 @@ export const saveFeishuConfigSchema = z
     appId: z.string().trim().regex(/^cli_[a-z0-9]+$/i, 'App ID 应以 cli_ 开头').max(64),
     /** 留空表示不修改已保存的 App Secret */
     appSecret: z.string().max(256).optional(),
-    loginEnabled: z.boolean(),
     ledgerEnabled: z.boolean(),
-    /** 台账多维表格链接（含 ?table= 的那种）；只开登录时可以不填 */
+    /** 台账多维表格链接（含 ?table= 的那种） */
     ledgerUrl: z.string().trim().max(500).nullable(),
   })
   .strict()
@@ -20,14 +19,8 @@ export type SaveFeishuConfigRequest = z.infer<typeof saveFeishuConfigSchema>;
 export interface FeishuConfigDto {
   appId: string;
   hasAppSecret: boolean;
-  loginEnabled: boolean;
   ledgerEnabled: boolean;
   ledgerUrl: string | null;
-}
-
-/** 登录页用：是否显示“飞书登录” */
-export interface FeishuLoginInfo {
-  enabled: boolean;
 }
 
 export interface FeishuTestResult {

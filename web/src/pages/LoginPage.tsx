@@ -1,13 +1,13 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { loginSchema, type FeishuLoginInfo } from '@aftersell/shared';
+import { useState, type FormEvent } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { loginSchema } from '@aftersell/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/auth';
-import { api, messageOf } from '@/lib/api';
+import { messageOf } from '@/lib/api';
 
 export default function LoginPage() {
   const { user, login } = useAuth();
@@ -15,18 +15,8 @@ export default function LoginPage() {
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [params] = useSearchParams();
-  // 飞书登录失败时后端带着 ?error= 跳回来
-  const [error, setError] = useState<string | null>(params.get('error'));
+  const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [feishu, setFeishu] = useState(false);
-
-  useEffect(() => {
-    api
-      .get<FeishuLoginInfo>('/auth/feishu/info')
-      .then((r) => setFeishu(r.enabled))
-      .catch(() => setFeishu(false));
-  }, []);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -79,16 +69,6 @@ export default function LoginPage() {
               登录
             </Button>
           </form>
-          {feishu && (
-            <>
-              <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
-                <div className="h-px flex-1 bg-border" />或<div className="h-px flex-1 bg-border" />
-              </div>
-              <Button variant="outline" className="w-full" onClick={() => (window.location.href = '/api/auth/feishu/login')}>
-                飞书登录
-              </Button>
-            </>
-          )}
         </CardContent>
       </Card>
     </div>

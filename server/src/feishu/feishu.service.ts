@@ -12,7 +12,6 @@ const TIMEOUT_MS = 20_000;
 const storedSchema = z.object({
   appId: z.string(),
   secretCipher: z.string().nullable(),
-  loginEnabled: z.boolean(),
   ledgerEnabled: z.boolean(),
   ledgerUrl: z.string().nullable(),
   /** 知识库链接换算出的 app_token 缓存 */
@@ -47,7 +46,7 @@ export function describeFeishuError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 飞书应用配置（App Secret 加密存 setting 表）与开放平台调用 */
+/** 飞书应用配置（App Secret 加密存 setting 表）与开放平台调用；只用于写台账，不做登录 */
 @Injectable()
 export class FeishuService {
   private readonly logger = new Logger(FeishuService.name);
@@ -62,7 +61,7 @@ export class FeishuService {
 
   async get(): Promise<FeishuConfigDto | null> {
     const s = await this.stored();
-    return s ? { appId: s.appId, hasAppSecret: Boolean(s.secretCipher), loginEnabled: s.loginEnabled, ledgerEnabled: s.ledgerEnabled, ledgerUrl: s.ledgerUrl } : null;
+    return s ? { appId: s.appId, hasAppSecret: Boolean(s.secretCipher), ledgerEnabled: s.ledgerEnabled, ledgerUrl: s.ledgerUrl } : null;
   }
 
   async save(actorId: string, dto: SaveFeishuConfigRequest): Promise<FeishuConfigDto> {
@@ -73,14 +72,13 @@ export class FeishuService {
     const next: Stored = {
       appId: dto.appId,
       secretCipher,
-      loginEnabled: dto.loginEnabled,
       ledgerEnabled: dto.ledgerEnabled,
       ledgerUrl: dto.ledgerUrl,
       resolvedAppToken: existing?.ledgerUrl === dto.ledgerUrl ? existing.resolvedAppToken : null,
     };
     await this.settings.set(KEY, next, actorId);
     this.tenant = null;
-    this.logger.log(`飞书配置已更新 by=${actorId} secretChanged=${Boolean(dto.appSecret)} login=${dto.loginEnabled} ledger=${dto.ledgerEnabled}`);
+    this.logger.log(`飞书配置已更新 by=${actorId} secretChanged=${Boolean(dto.appSecret)} ledger=${dto.ledgerEnabled}`);
     return (await this.get())!;
   }
 
@@ -88,11 +86,6 @@ export class FeishuService {
     const s = await this.stored();
     if (!s?.secretCipher) return null;
     return { appId: s.appId, appSecret: this.box.decrypt(s.secretCipher) };
-  }
-
-  async loginEnabled(): Promise<boolean> {
-    const s = await this.stored();
-    return Boolean(s?.loginEnabled && s.secretCipher);
   }
 
   async ledgerEnabled(): Promise<boolean> {

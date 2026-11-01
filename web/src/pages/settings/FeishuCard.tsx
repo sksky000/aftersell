@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Plug, RefreshCw, Save } from 'lucide-react';
+import { Plug, RefreshCw, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { saveFeishuConfigSchema, type FeishuConfigDto, type FeishuTestResult, type LedgerStatusDto } from '@aftersell/shared';
 import { Badge } from '@/components/ui/badge';
@@ -17,19 +17,18 @@ import { formatDateTime } from '@/lib/format';
 export default function FeishuCard() {
   const { can } = useAuth();
   const admin = can('admin');
-  const [form, setForm] = useState({ appId: '', appSecret: '', loginEnabled: false, ledgerEnabled: false, ledgerUrl: '' });
+  const [form, setForm] = useState({ appId: '', appSecret: '', ledgerEnabled: false, ledgerUrl: '' });
   const [saved, setSaved] = useState<FeishuConfigDto | null | undefined>(undefined);
   const [ledger, setLedger] = useState<LedgerStatusDto | null>(null);
   const [test, setTest] = useState<FeishuTestResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const callback = `${window.location.origin}/api/auth/feishu/callback`;
 
   const load = useCallback(async () => {
     try {
       const [c, l] = await Promise.all([api.get<FeishuConfigDto | null>('/feishu/config'), api.get<LedgerStatusDto>('/feishu/ledger')]);
       setSaved(c);
       setLedger(l);
-      if (c) setForm({ appId: c.appId, appSecret: '', loginEnabled: c.loginEnabled, ledgerEnabled: c.ledgerEnabled, ledgerUrl: c.ledgerUrl ?? '' });
+      if (c) setForm({ appId: c.appId, appSecret: '', ledgerEnabled: c.ledgerEnabled, ledgerUrl: c.ledgerUrl ?? '' });
     } catch (e) {
       toast.error(messageOf(e));
     }
@@ -74,7 +73,7 @@ export default function FeishuCard() {
       <Card>
         <CardHeader>
           <CardTitle>飞书应用</CardTitle>
-          <CardDescription>用于飞书扫码登录和写入台账。App Secret 加密保存，保存后不再显示。{!admin && ' 只有管理员可以修改。'}</CardDescription>
+          <CardDescription>用于把客诉写入飞书台账（登录仍用邮箱和密码）。App Secret 加密保存，保存后不再显示。{!admin && ' 只有管理员可以修改。'}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <fieldset disabled={!admin} className="space-y-4">
@@ -94,21 +93,6 @@ export default function FeishuCard() {
                 />
               </div>
             </div>
-            <label className="flex items-start gap-3">
-              <Switch checked={form.loginEnabled} onCheckedChange={(v) => setForm({ ...form, loginEnabled: v })} />
-              <span className="space-y-1">
-                <span className="text-sm font-medium block">飞书登录</span>
-                <span className="text-xs text-muted-foreground block">
-                  登录页出现“飞书登录”。按飞书账号的邮箱匹配系统账号（账号仍需管理员在用户管理里创建，邮箱要与飞书一致）。需在飞书开放平台“安全设置 → 重定向 URL”里添加：
-                </span>
-                <span className="flex items-center gap-2 text-xs">
-                  <code className="rounded bg-muted px-1.5 py-0.5">{callback}</code>
-                  <button type="button" className="hover:text-foreground text-muted-foreground" title="复制" onClick={() => void navigator.clipboard.writeText(callback).then(() => toast.success('已复制'))}>
-                    <Copy className="size-3.5" />
-                  </button>
-                </span>
-              </span>
-            </label>
             <label className="flex items-start gap-3">
               <Switch checked={form.ledgerEnabled} onCheckedChange={(v) => setForm({ ...form, ledgerEnabled: v })} />
               <span className="space-y-1">

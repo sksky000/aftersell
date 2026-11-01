@@ -46,37 +46,6 @@ export class AuthService {
     return { user: toUserDto(updated), token: await this.jwt.signAsync(payload) };
   }
 
-  /**
-   * 飞书登录：先按已绑定的 open_id 找账号，找不到再按飞书邮箱匹配并绑定。
-   * 不自动开户：账号仍由管理员在用户管理里创建。
-   */
-  async loginWithFeishu(openId: string, emails: string[]): Promise<{ user: UserDto; token: string }> {
-    let [row] = await this.db.select().from(users).where(eq(users.feishuOpenId, openId)).limit(1);
-    if (!row) {
-      for (const email of emails) {
-        const found = await this.usersService.findByEmail(email);
-        if (found) {
-          if (found.feishuOpenId && found.feishuOpenId !== openId) throw new UnauthorizedException('这个账号已绑定了另一个飞书账号，请联系管理员');
-          row = found;
-          break;
-        }
-      }
-    }
-    if (!row) {
-      throw new UnauthorizedException(
-        emails.length ? `系统里没有邮箱为 ${emails.join(' / ')} 的账号，请联系管理员开通` : '飞书没有返回你的邮箱，无法匹配账号，请联系管理员',
-      );
-    }
-    if (!row.isActive) throw new UnauthorizedException('账号已停用');
-    const [updated] = await this.db
-      .update(users)
-      .set({ feishuOpenId: openId, lastLoginAt: new Date() })
-      .where(eq(users.id, row.id))
-      .returning();
-    const payload: SessionPayload = { sub: updated.id, tv: updated.tokenVersion };
-    return { user: toUserDto(updated), token: await this.jwt.signAsync(payload) };
-  }
-
   async changePassword(userId: string, dto: ChangePasswordRequest): Promise<{ user: UserDto; token: string }> {
     const row = await this.usersService.findById(userId);
     if (!row) throw new UnauthorizedException();

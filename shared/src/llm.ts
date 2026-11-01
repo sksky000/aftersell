@@ -8,8 +8,8 @@ export const LLM_SLOT_LABELS: Record<LlmSlot, { label: string; hint: string }> =
   classify: { label: '分类', hint: '15 类分类、零件、紧急度、凭证缺失、是否我方产品' },
   vision: { label: '识图', hint: '附件图片识别；需要支持图片输入的模型' },
   draft: { label: '草稿', hint: '英文回复草稿' },
-  subject_tag: { label: '主题标签', hint: 'M4 起使用' },
-  translate: { label: '翻译', hint: 'M4 起使用' },
+  subject_tag: { label: '主题标签', hint: '回复主题里的 [进展 | 问题] 标签' },
+  translate: { label: '翻译', hint: '来信与草稿译成中文' },
 };
 
 export const LLM_PROVIDERS = ['deepseek', 'dashscope', 'anthropic'] as const;

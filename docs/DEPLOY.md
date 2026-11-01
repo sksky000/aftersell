@@ -71,15 +71,19 @@ crontab -e
 0 3 * * * /srv/aftersell/deploy/backup.sh >> /srv/aftersell/backups/backup.log 2>&1
 ```
 
-备份文件在 `/srv/aftersell/backups/`：`db-<时间>.dump`（数据库）和 `attachments-<时间>.tar.gz`（附件）。手动备份直接运行 `deploy/backup.sh`。建议定期把备份目录同步到服务器以外的地方（如 OSS），服务器整盘损坏时本机备份也会一起丢。
+备份在 `/srv/aftersell/backups/`：
+- `db-<时间>.dump`：数据库，每天一份，保留 14 天
+- `attachments/`：附件镜像。附件写入后不会再变，所以每天只把新文件补进来；和附件在同一块盘时用硬链接，不额外占空间。每天上百封邮件的规模下，整包打附件的旧做法几个月就会写满硬盘
 
-恢复（会覆盖当前数据，需输入 yes 确认）：
+手动备份直接运行 `deploy/backup.sh`。本机备份防误删、防程序出错，防不了整盘损坏；异地备份（自动快照 / OSS）在交接前配置。
+
+恢复（覆盖当前数据库并补回缺失的附件，需输入 yes 确认）：
 
 ```bash
-deploy/restore.sh backups/db-20261101-030000.dump backups/attachments-20261101-030000.tar.gz
+deploy/restore.sh backups/db-20261101-030000.dump
 ```
 
-在新服务器上整体恢复：按第 2 节部署，把原来的 `.env` 放回仓库目录（不要运行 `init-env.sh`），`docker compose up -d --build` 后再运行 `restore.sh`。
+在新服务器上整体恢复：按第 2 节部署，把原来的 `.env` 和整个 `backups/` 目录放回仓库目录（不要运行 `init-env.sh`），`docker compose up -d --build` 后再运行 `restore.sh`。
 
 ## 6. 常用排查
 

@@ -15,6 +15,7 @@ import {
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { loadPrompt } from '../llm/prompts';
 import { LlmService } from '../llm/llm.service';
+import { detectCustomerLanguage } from '../mail/language';
 import { stripQuotedHistory } from '../mail/quote-strip';
 import { neutralize } from '../pipeline/classification';
 import { assembleContext } from './context';
@@ -157,8 +158,10 @@ export class DraftService {
       this.rules.engineRules(),
     ]);
     const models = this.knowledge.compiledModels();
+    // 分类时已判定过；这里再判一次，让修复前入库的错误语言在“重新生成”时也能纠正
+    const language = detectCustomerLanguage(row, row.language as Language);
     const signals = computeSignals({
-      message: { ...row, attachments: current },
+      message: { ...row, language, attachments: current },
       stage,
       models,
       payment,
@@ -194,7 +197,6 @@ export class DraftService {
       'Write the reply now.',
     ].join('\n');
 
-    const language = row.language as Language;
     const batteryPurchase = signals.isPurchaseFlow && row.partType === 'battery' && signals.modelKnown;
     const write = async (prompt: string) => {
       const { text, config } = await this.llm.generate('draft', { system: loadPrompt('draft'), user: prompt, maxTokens: 1500 }, { emailId });
@@ -243,7 +245,7 @@ export class DraftService {
       }
       await tx
         .update(emailMessage)
-        .set({ pipelineState: 'drafted', pipelineError: null, updatedAt: new Date() })
+        .set({ pipelineState: 'drafted', pipelineError: null, language, updatedAt: new Date() })
         .where(eq(emailMessage.id, emailId));
       return reply;
     });

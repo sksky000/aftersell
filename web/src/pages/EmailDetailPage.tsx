@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, FileText, Film, Paperclip, RotateCw, ShieldOff } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Archive, ArchiveRestore, ArrowLeft, FileText, Film, Paperclip, RotateCw, ShieldOff, Trash2 } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ADJUDICATION_LABELS,
@@ -185,6 +185,7 @@ function ClassificationCard({ email }: { email: EmailDetailDto }) {
 
 export default function EmailDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { can } = useAuth();
   const [email, setEmail] = useState<EmailDetailDto | null>(null);
   const [thread, setThread] = useState<ThreadItemDto[]>([]);
@@ -251,6 +252,32 @@ export default function EmailDetailPage() {
     }
   };
 
+  const setStatus = async (status: 'pending_review' | 'ignored') => {
+    setBusy(true);
+    try {
+      await api.patch(`/emails/${id}/status`, { status });
+      toast.success(status === 'ignored' ? '已忽略，不再出现在待审核里' : '已恢复为待审核');
+      await load();
+    } catch (err) {
+      toast.error(messageOf(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!window.confirm('删除这封邮件？草稿和附件记录会一起删除，邮箱里的原邮件不受影响，之后也不会再被拉进来。')) return;
+    setBusy(true);
+    try {
+      await api.delete(`/emails/${id}`);
+      toast.success('已删除');
+      navigate('/inbox');
+    } catch (err) {
+      toast.error(messageOf(err));
+      setBusy(false);
+    }
+  };
+
   const back = (
     <Button variant="ghost" size="sm" asChild>
       <Link to="/inbox">
@@ -279,7 +306,26 @@ export default function EmailDetailPage() {
   const others = thread.filter((t) => t.id !== email.id);
   return (
     <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
-      {back}
+      <div className="flex items-center gap-2">
+        {back}
+        <div className="ml-auto flex items-center gap-2">
+          {email.status === 'pending_review' && (
+            <Button variant="outline" size="sm" onClick={() => void setStatus('ignored')} disabled={busy}>
+              <Archive className="size-4" /> 忽略
+            </Button>
+          )}
+          {email.status === 'ignored' && (
+            <Button variant="outline" size="sm" onClick={() => void setStatus('pending_review')} disabled={busy}>
+              <ArchiveRestore className="size-4" /> 恢复待审核
+            </Button>
+          )}
+          {can('supervisor') && email.status !== 'replied' && (
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => void remove()} disabled={busy}>
+              <Trash2 className="size-4" /> 删除
+            </Button>
+          )}
+        </div>
+      </div>
       <div className="space-y-2">
         <h1 className="text-xl font-semibold break-words">{email.subject || '（无主题）'}</h1>
         <div className="flex items-center gap-2 flex-wrap">

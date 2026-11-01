@@ -3,7 +3,7 @@ import { desc, eq, inArray } from 'drizzle-orm';
 import { ImapFlow, type SearchObject } from 'imapflow';
 import type { SyncRunDto, SyncRunStatus, SyncTrigger } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
-import { emailMessage, syncRun, type SyncRunRow } from '../db/schema';
+import { deletedMessage, emailMessage, syncRun, type SyncRunRow } from '../db/schema';
 import { MailConfigService, type MailCredentials, type SyncOptions } from '../mail-config/mail-config.service';
 import { describeMailError } from '../mail-config/mail-endpoint';
 import { parseIncoming } from '../mail/parse-incoming';
@@ -180,11 +180,13 @@ export class MailSyncService {
             batch.push({ uid: msg.uid, messageId: msg.envelope?.messageId ?? null });
           }
           const ids = batch.flatMap((row) => (row.messageId ? [row.messageId] : []));
+          // 人工删除过的来信也算已入库，不再拉回来
           const imported = ids.length
             ? await this.db
                 .select({ messageId: emailMessage.messageId })
                 .from(emailMessage)
                 .where(inArray(emailMessage.messageId, ids))
+                .union(this.db.select({ messageId: deletedMessage.messageId }).from(deletedMessage).where(inArray(deletedMessage.messageId, ids)))
             : [];
           const importedIds = new Set(imported.map((row) => row.messageId));
           for (const row of batch) {

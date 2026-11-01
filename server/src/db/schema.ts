@@ -509,3 +509,11 @@ export type EmailAttachmentRow = typeof emailAttachment.$inferSelect;
 export type SyncRunRow = typeof syncRun.$inferSelect;
 export type UploadRow = typeof upload.$inferSelect;
 export type SnippetRow = typeof snippet.$inferSelect;
+
+/** 人工删除的来信：记下 message_id，拉信时当作已入库，不会被重新拉进来 */
+export const deletedMessage = pgTable('deleted_message', {
+  messageId: varchar('message_id', { length: 998 }).primaryKey(),
+  subject: text('subject'),
+  deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }).notNull().defaultNow(),
+});

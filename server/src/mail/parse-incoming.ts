@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { simpleParser } from 'mailparser';
 import { isDepothelpSender, normalizeDepothelpTicketText } from './depothelp';
+import { htmlToPlainText, restoreForwardedAddresses } from './forward-address';
 import { selectIncomingAttachments, type PendingAttachment } from './incoming-attachments';
 import { repairDegradedEmailText } from './quote-strip';
 
@@ -47,9 +48,9 @@ export async function parseIncoming(source: Buffer | string, internalDate?: Date
   const fromAddress = from?.address?.trim().slice(0, 320) || null;
   const html = typeof parsed.html === 'string' ? clean(parsed.html) : null;
 
-  let bodyText = repairDegradedEmailText(
-    clean(parsed.text ?? '').trim() || (html ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
-  );
+  let bodyText = repairDegradedEmailText(clean(parsed.text ?? '').trim() || (html ? htmlToPlainText(html) : ''));
+  // Foxmail 等转发时纯文本只剩客户昵称，地址在 HTML 的 mailto 链接里
+  bodyText = restoreForwardedAddresses(bodyText, html);
   if (isDepothelpSender(fromAddress)) bodyText = normalizeDepothelpTicketText(bodyText);
 
   const receivedAt = validDate(parsed.date) ?? validDate(internalDate);

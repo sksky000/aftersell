@@ -294,3 +294,39 @@ export interface InboxStatsDto {
   evidenceIncompletePending: number;
   unclassified: number;
 }
+
+// ---------- 状态、删除、已回复 ----------
+
+/** 客服手动改状态：忽略 / 恢复待审核（已回复由发送产生，不能手动改） */
+export const updateEmailStatusSchema = z.object({ status: z.enum(['pending_review', 'ignored']) }).strict();
+export type UpdateEmailStatusRequest = z.infer<typeof updateEmailStatusSchema>;
+
+export const repliedListQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(50),
+    search: z.string().trim().max(200).optional(),
+  })
+  .strict();
+export type RepliedListQuery = z.infer<typeof repliedListQuerySchema>;
+
+/** 一条我方回复：系统发出的带发送人；在邮箱客户端里发的（已发送同步）没有 */
+export interface RepliedItemDto {
+  id: string;
+  /** 回复的那封来信；来信已删除或未入库时为 null */
+  emailId: string | null;
+  customerSubject: string | null;
+  subject: string | null;
+  to: string | null;
+  sentAt: string;
+  source: 'system' | 'imap_sent';
+  sentBy: string | null;
+  excerpt: string;
+  /** 客服改过 AI 草稿再发 */
+  edited: boolean;
+}
+
+export interface RepliedListResponse {
+  items: RepliedItemDto[];
+  total: number;
+}

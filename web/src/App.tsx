@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import InboxPage from './pages/inbox/InboxPage';
+import RepliedPage from './pages/RepliedPage';
 import EmailDetailPage from './pages/EmailDetailPage';
 import SettingsPage from './pages/settings/SettingsPage';
 
@@ -46,6 +47,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/inbox" replace />} />
         <Route path="inbox" element={<InboxPage />} />
+        <Route path="replied" element={<RepliedPage />} />
         <Route path="emails/:id" element={<EmailDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

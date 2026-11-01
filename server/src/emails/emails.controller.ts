@@ -1,14 +1,20 @@
-import { Controller, Get, Param, ParseUUIDPipe, Res, StreamableFile } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Res, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
 import {
   emailListQuerySchema,
+  repliedListQuerySchema,
+  updateEmailStatusSchema,
+  type RepliedListQuery,
+  type RepliedListResponse,
+  type UpdateEmailStatusRequest,
   type EmailDetailDto,
   type EmailListQuery,
   type EmailListResponse,
   type InboxStatsDto,
   type ThreadItemDto,
 } from '@aftersell/shared';
-import { ZodQuery } from '../common/zod-body';
+import { CurrentUser, Roles, type AuthUser } from '../auth/decorators';
+import { ZodBody, ZodQuery } from '../common/zod-body';
 import { EmailsService } from './emails.service';
 
 /** 浏览器可安全内联显示的类型；SVG 可携带脚本，一律作为下载 */
@@ -26,6 +32,24 @@ export class EmailsController {
   @Get('stats')
   stats(): Promise<InboxStatsDto> {
     return this.emails.stats();
+  }
+
+  @Get('replied')
+  replied(@ZodQuery(repliedListQuerySchema) query: RepliedListQuery): Promise<RepliedListResponse> {
+    return this.emails.replied(query);
+  }
+
+  @Patch(':id/status')
+  @HttpCode(204)
+  updateStatus(@Param('id', ParseUUIDPipe) id: string, @ZodBody(updateEmailStatusSchema) dto: UpdateEmailStatusRequest): Promise<void> {
+    return this.emails.updateStatus(id, dto.status);
+  }
+
+  @Roles('supervisor')
+  @Delete(':id')
+  @HttpCode(204)
+  remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    return this.emails.remove(id, user.id);
   }
 
   @Get(':id')

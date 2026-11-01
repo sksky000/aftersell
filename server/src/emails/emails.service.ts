@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type {
   AttachmentRecognitionDto,
@@ -8,13 +8,19 @@ import type {
   EmailListQuery,
   EmailListResponse,
   InboxStatsDto,
+  RepliedListQuery,
+  RepliedListResponse,
   ThreadItemDto,
+  UpdateEmailStatusRequest,
 } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
 import {
+  deletedMessage,
   emailAttachment,
   emailMessage,
+  emailReply,
   outboundMessage,
+  users,
   type AttachmentRecognitionRow,
   type EmailAttachmentRow,
   type EmailMessageRow,
@@ -100,6 +106,8 @@ function escapeLike(value: string): string {
 
 @Injectable()
 export class EmailsService {
+  private readonly logger = new Logger(EmailsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(STORAGE) private readonly storage: Storage,
@@ -272,6 +280,81 @@ export class EmailsService {
       throw new NotFoundException('附件文件已丢失');
     });
     return { ...file, filename: row.filename, contentType: row.contentType };
+  }
+
+  async updateStatus(id: string, status: UpdateEmailStatusRequest['status']): Promise<void> {
+    const row = await this.findRow(id);
+    if (row.status === 'replied') throw new ConflictException('已回复的邮件不能改状态');
+    await this.db.update(emailMessage).set({ status, updatedAt: new Date() }).where(eq(emailMessage.id, id));
+  }
+
+  /**
+   * 删除来信（垃圾邮件、测试邮件）：草稿、附件记录随之删除；记下 message_id，拉信时不再拉回。
+   * 系统发出过回复的邮件保留发送审计，不能删，可改为忽略。
+   */
+  async remove(id: string, actorId: string): Promise<void> {
+    const row = await this.findRow(id);
+    const [sent] = await this.db
+      .select({ id: emailReply.id })
+      .from(emailReply)
+      .where(and(eq(emailReply.emailId, id), inArray(emailReply.status, ['sending', 'sent'])))
+      .limit(1);
+    if (sent) throw new ConflictException('这封邮件系统已发出过回复，为保留发送记录不能删除，可以改为忽略');
+    await this.db.transaction(async (tx) => {
+      await tx.insert(deletedMessage).values({ messageId: row.messageId, subject: row.subject, deletedBy: actorId }).onConflictDoNothing();
+      await tx.delete(emailMessage).where(eq(emailMessage.id, id));
+    });
+    this.logger.log(`邮件已删除 id=${id} by=${actorId}`);
+  }
+
+  /** 已回复记录：我方所有发出的回复（系统发送 + 邮箱“已发送”同步），新的在前 */
+  async replied(q: RepliedListQuery): Promise<RepliedListResponse> {
+    const conditions: SQL[] = [];
+    if (q.search) {
+      const like = `%${q.search.replace(/[%_\\]/g, '\\$&')}%`;
+      conditions.push(or(ilike(outboundMessage.subject, like), ilike(outboundMessage.toAddresses, like), ilike(outboundMessage.bodyText, like))!);
+    }
+    const where = conditions.length ? and(...conditions) : undefined;
+    const [rows, [{ total }]] = await Promise.all([
+      this.db
+        .select({
+          id: outboundMessage.id,
+          subject: outboundMessage.subject,
+          to: outboundMessage.toAddresses,
+          sentAt: sql<Date>`coalesce(${outboundMessage.sentAt}, ${outboundMessage.createdAt})`,
+          source: outboundMessage.source,
+          bodyText: outboundMessage.bodyText,
+          emailId: emailMessage.id,
+          customerSubject: emailMessage.subject,
+          sentBy: users.name,
+          draftContent: emailReply.draftContent,
+          finalContent: emailReply.finalContent,
+        })
+        .from(outboundMessage)
+        .leftJoin(emailMessage, eq(emailMessage.messageId, outboundMessage.inReplyTo))
+        .leftJoin(emailReply, eq(emailReply.replyMessageId, outboundMessage.messageId))
+        .leftJoin(users, eq(users.id, emailReply.sentBy))
+        .where(where)
+        .orderBy(desc(sql`coalesce(${outboundMessage.sentAt}, ${outboundMessage.createdAt})`))
+        .limit(q.pageSize)
+        .offset((q.page - 1) * q.pageSize),
+      this.db.select({ total: count() }).from(outboundMessage).where(where),
+    ]);
+    return {
+      total,
+      items: rows.map((r) => ({
+        id: r.id,
+        emailId: r.emailId,
+        customerSubject: r.customerSubject,
+        subject: r.subject,
+        to: r.to,
+        sentAt: new Date(r.sentAt).toISOString(),
+        source: r.source === 'system' ? 'system' : 'imap_sent',
+        sentBy: r.sentBy,
+        excerpt: stripQuotedHistory(r.bodyText).replace(/\s+/g, ' ').trim().slice(0, 200),
+        edited: Boolean(r.draftContent?.trim() && r.finalContent && r.draftContent.trim() !== r.finalContent.trim()),
+      })),
+    };
   }
 
   private async threadSizes(threadIds: (string | null)[]): Promise<Map<string, number>> {

@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { and, eq, ilike, isNotNull } from 'drizzle-orm';
 import { DB, type Database } from '../db/db.module';
 import { emailAttachment, emailMessage } from '../db/schema';
 import { isFollowUpEmail } from '../mail/follow-up-filter';
+import { restoreForwardedAddresses } from '../mail/forward-address';
 import type { IncomingEmail } from '../mail/parse-incoming';
 import { STORAGE, type Storage, type StoredObject } from '../storage/storage';
 import { resolveThreadId } from './thread-resolver';
@@ -10,11 +11,29 @@ import { resolveThreadId } from './thread-resolver';
 export type IngestResult = { status: 'inserted'; id: string } | { status: 'duplicate' };
 
 @Injectable()
-export class IngestService {
+export class IngestService implements OnModuleInit {
+  private readonly logger = new Logger(IngestService.name);
+
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(STORAGE) private readonly storage: Storage,
   ) {}
+
+  /** 补回入库规则改进前存下的转发邮件里缺失的客户地址（纯本地计算，已补过的不会再变） */
+  async onModuleInit(): Promise<void> {
+    const rows = await this.db
+      .select({ id: emailMessage.id, bodyText: emailMessage.bodyText, bodyHtml: emailMessage.bodyHtml })
+      .from(emailMessage)
+      .where(and(isNotNull(emailMessage.bodyHtml), ilike(emailMessage.bodyHtml, '%mailto:%')));
+    let fixed = 0;
+    for (const row of rows) {
+      const restored = restoreForwardedAddresses(row.bodyText, row.bodyHtml);
+      if (restored === row.bodyText) continue;
+      await this.db.update(emailMessage).set({ bodyText: restored, updatedAt: new Date() }).where(eq(emailMessage.id, row.id));
+      fixed += 1;
+    }
+    if (fixed) this.logger.log(`从 HTML 补回转发邮件里的客户地址 ${fixed} 封`);
+  }
 
   /**
    * 幂等入库：message_id 已存在则不写。附件先按内容落盘（相同内容同一文件），

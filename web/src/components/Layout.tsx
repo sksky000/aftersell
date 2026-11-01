@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Inbox, LogOut, Settings } from 'lucide-react';
+import { Inbox, LogOut, Reply, Settings } from 'lucide-react';
 import { ROLE_LABELS } from '@aftersell/shared';
 import { useAuth } from '@/auth';
 import { useNewVersionNotice } from '@/lib/useNewVersionNotice';
 
 const NAV_ITEMS = [
   { to: '/inbox', label: '邮件看板', icon: Inbox, also: '/emails/' },
+  { to: '/replied', label: '已回复', icon: Reply, also: null },
   { to: '/settings', label: '设置', icon: Settings, also: null },
 ];
 

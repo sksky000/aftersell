@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plug, RefreshCw, Save } from 'lucide-react';
+import { ExternalLink, Plug, Plus, RefreshCw, Save, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { saveFeishuConfigSchema, type FeishuConfigDto, type FeishuTestResult, type LedgerStatusDto } from '@aftersell/shared';
+import { ledgerShareSchema, saveFeishuConfigSchema, type FeishuConfigDto, type FeishuTestResult, type LedgerStatusDto, type LedgerTableResult } from '@aftersell/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,15 +13,30 @@ import { useAuth } from '@/auth';
 import { api, messageOf } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 
-/** 飞书应用（登录 + 台账）配置；App Secret 加密保存，不回显 */
+/** 飞书应用（台账）配置；App Secret 加密保存，不回显 */
 export default function FeishuCard() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const admin = can('admin');
   const [form, setForm] = useState({ appId: '', appSecret: '', ledgerEnabled: false, ledgerUrl: '' });
   const [saved, setSaved] = useState<FeishuConfigDto | null | undefined>(undefined);
   const [ledger, setLedger] = useState<LedgerStatusDto | null>(null);
   const [test, setTest] = useState<FeishuTestResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [shareEmail, setShareEmail] = useState(user?.email ?? '');
+  const [tableResult, setTableResult] = useState<LedgerTableResult | null>(null);
+
+  /** 一键新建台账 / 共享当前台账 */
+  const ledgerAction = (kind: 'create' | 'share') => {
+    const parsed = ledgerShareSchema.safeParse({ email: shareEmail });
+    if (!parsed.success) return toast.error(parsed.error.issues[0]?.message ?? '请填写飞书邮箱');
+    void act(async () => {
+      const r = await api.post<LedgerTableResult>(`/feishu/ledger/${kind}`, parsed.data);
+      setTableResult(r);
+      if (r.shared) toast.success(r.message);
+      else toast.error(r.message);
+      await load();
+    });
+  };
 
   const load = useCallback(async () => {
     try {
@@ -105,9 +120,37 @@ export default function FeishuCard() {
             <div className="space-y-1.5">
               <Label>台账多维表格链接</Label>
               <Input value={form.ledgerUrl} placeholder="打开那张表后复制浏览器地址，需包含 table=tbl..." onChange={(e) => setForm({ ...form, ledgerUrl: e.target.value })} />
-              <p className="text-xs text-muted-foreground">还要在这张表右上角“…→ 添加文档应用”里加上这个飞书应用，否则没有写入权限。</p>
+              <p className="text-xs text-muted-foreground">自己建的表，还要在表右上角“…→ 添加文档应用”里加上这个飞书应用，否则没有写入权限。用下面“一键新建”建的表不需要。</p>
             </div>
           </fieldset>
+          {admin && saved?.hasAppSecret && (
+            <div className="rounded-md border border-border p-3 space-y-2">
+              <div className="text-sm font-medium">{saved.ledgerUrl ? '共享台账' : '还没有台账表？'}</div>
+              <p className="text-xs text-muted-foreground">
+                {saved.ledgerUrl
+                  ? '把当前台账共享给一个飞书账号（可管理权限），对方在飞书“云文档 → 与我共享”里能看到。'
+                  : '用这个飞书应用新建一张与妙搭台账结构相同的表，自动开启同步，并共享给下面的飞书邮箱。需要应用已开通“查看、评论、编辑和管理多维表格”和“添加协作者”（docs:permission.member:create）权限。'}
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Input className="w-72" value={shareEmail} placeholder="你的飞书邮箱" onChange={(e) => setShareEmail(e.target.value)} />
+                {saved.ledgerUrl ? (
+                  <>
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => ledgerAction('share')}>
+                      <Share2 className="size-4" /> 共享
+                    </Button>
+                    <a href={saved.ledgerUrl} target="_blank" rel="noreferrer" className="text-sm inline-flex items-center gap-1 hover:underline">
+                      <ExternalLink className="size-4" /> 打开台账
+                    </a>
+                  </>
+                ) : (
+                  <Button size="sm" disabled={busy} onClick={() => ledgerAction('create')}>
+                    {busy ? <Spinner className="size-4" /> : <Plus className="size-4" />} 一键新建台账
+                  </Button>
+                )}
+              </div>
+              {tableResult && <div className={`text-sm ${tableResult.shared ? 'text-green-700' : 'text-destructive'}`}>{tableResult.message}</div>}
+            </div>
+          )}
           {admin && (
             <div className="flex gap-2">
               <Button onClick={save} disabled={busy}>

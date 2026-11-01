@@ -93,3 +93,13 @@ export function resolveProblemPart(messages: ProblemPartMessage[]): string {
   }
   return '';
 }
+
+/** 台账“问题部件”的全部选项（建表时预先建好） */
+export const PROBLEM_PART_OPTIONS: readonly string[] = [
+  ...new Set([
+    ...['e-001', 'e-002', 'e-003', 'e-004', 'e-005', 'e-006', 'e-007'],
+    ...PHRASE_RULES.map(([, option]) => option),
+    ...WORD_RULES.map(([, option]) => option),
+    ...Object.values(PART_TYPE_FALLBACK),
+  ]),
+];

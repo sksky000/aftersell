@@ -1,5 +1,14 @@
 import { Controller, Get, HttpCode, Post, Put } from '@nestjs/common';
-import { saveFeishuConfigSchema, type FeishuConfigDto, type FeishuTestResult, type LedgerStatusDto, type SaveFeishuConfigRequest } from '@aftersell/shared';
+import {
+  ledgerShareSchema,
+  saveFeishuConfigSchema,
+  type FeishuConfigDto,
+  type FeishuTestResult,
+  type LedgerShareRequest,
+  type LedgerStatusDto,
+  type LedgerTableResult,
+  type SaveFeishuConfigRequest,
+} from '@aftersell/shared';
 import { CurrentUser, Roles, type AuthUser } from '../auth/decorators';
 import { ZodBody } from '../common/zod-body';
 import { FeishuService } from './feishu.service';
@@ -42,5 +51,19 @@ export class FeishuController {
   @HttpCode(202)
   resync(@CurrentUser() user: AuthUser): Promise<void> {
     return this.ledger.resyncAll(user.id);
+  }
+
+  @Roles('admin')
+  @Post('ledger/create')
+  @HttpCode(200)
+  createTable(@CurrentUser() user: AuthUser, @ZodBody(ledgerShareSchema) dto: LedgerShareRequest): Promise<LedgerTableResult> {
+    return this.ledger.createTable(user.id, dto.email);
+  }
+
+  @Roles('admin')
+  @Post('ledger/share')
+  @HttpCode(200)
+  share(@ZodBody(ledgerShareSchema) dto: LedgerShareRequest): Promise<LedgerTableResult> {
+    return this.ledger.share(dto.email);
   }
 }

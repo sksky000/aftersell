@@ -83,3 +83,6 @@ export function matchBikeModelByAlias(text: string): string {
   }
   return '';
 }
+
+/** 台账 Model# 的全部选项（建表时预先建好） */
+export const MODEL_OPTIONS: readonly string[] = MODEL_ALIAS_TABLE.map((row) => row[0]);

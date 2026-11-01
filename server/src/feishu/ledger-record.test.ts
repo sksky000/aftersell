@@ -72,3 +72,18 @@ describe('ledger record', () => {
     expect(parseBitableUrl('https://abc.feishu.cn/base/BascnAbC123')).toBeNull();
   });
 });
+
+describe('ledger table definition', () => {
+  it('has every field the sync writes, a text primary column, and unique names', async () => {
+    const { LEDGER_TABLE_FIELDS } = await import('./ledger-table');
+    const { LEDGER_FIELDS } = await import('./ledger-record');
+    const names = LEDGER_TABLE_FIELDS.map((f) => f.field_name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const f of LEDGER_FIELDS) expect(names).toContain(f);
+    expect(LEDGER_TABLE_FIELDS[0].type).toBe(FIELD_TYPES.text);
+    // 系统写入的选项值都在预建的选项里
+    const options = (name: string) => (LEDGER_TABLE_FIELDS.find((f) => f.field_name === name)?.property?.options as { name: string }[]).map((o) => o.name);
+    expect(options('问题部件')).toContain('锂电池');
+    expect(options('Model#')).toContain('27.5 COMMUTR EBIKE');
+  });
+});

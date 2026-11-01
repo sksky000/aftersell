@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { and, asc, eq, gt, ilike, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { FeishuTestResult, LedgerStatusDto } from '@aftersell/shared';
+import type { FeishuTestResult, LedgerStatusDto, LedgerTableResult } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
 import { emailAttachment, emailMessage, ledgerRow } from '../db/schema';
 import { customerIdentity } from '../mail/case-association';
@@ -10,6 +10,7 @@ import { SettingsService } from '../settings/settings.service';
 import { STORAGE, type Storage } from '../storage/storage';
 import { describeFeishuError, FeishuError, FeishuService } from './feishu.service';
 import { adaptToTable, buildLedgerRecord, FIELD_TYPES, LEDGER_FIELDS, type LedgerEmail } from './ledger-record';
+import { LEDGER_TABLE_FIELDS } from './ledger-table';
 
 const CURSOR_KEY = 'feishu.ledger_cursor';
 const TICK_MS = 60_000;
@@ -92,6 +93,47 @@ export class LedgerService implements OnModuleInit, OnApplicationShutdown {
       return { ok: matched > 0, message: matched ? `连接正常，表里 ${fields.size} 个字段，系统会写其中 ${matched} 个` : '连接正常，但表里没有系统会写的字段，请确认是复制妙搭台账结构的表', fields: list };
     } catch (error) {
       return { ok: false, message: describeFeishuError(error), fields: [] };
+    }
+  }
+
+  /**
+   * 用应用身份新建一张台账（结构同妙搭台账），共享给指定的飞书邮箱，并把同步指向它。
+   * 表建在应用自己的云空间里，只有被共享的人能看到（在飞书“云文档 → 与我共享”里）。
+   */
+  async createTable(actorId: string, shareEmail: string): Promise<LedgerTableResult> {
+    const token = await this.feishu.tenantToken();
+    const app = await this.feishu.call<{ app: { app_token: string; url: string; default_table_id?: string } }>('/bitable/v1/apps', {
+      token,
+      body: { name: `售后台账（测试）${new Date().toISOString().slice(0, 10)}` },
+    });
+    const appToken = app.app.app_token;
+    const table = await this.feishu.call<{ table_id: string }>(`/bitable/v1/apps/${appToken}/tables`, {
+      token,
+      body: { table: { name: '台账', default_view_name: '全部', fields: LEDGER_TABLE_FIELDS } },
+    });
+    // 新建的多维表格自带一张空表，删掉免得混淆；失败不影响使用
+    if (app.app.default_table_id) {
+      await this.feishu.call(`/bitable/v1/apps/${appToken}/tables/${app.app.default_table_id}`, { method: 'DELETE', token }).catch(() => undefined);
+    }
+    const url = `${app.app.url}?table=${table.table_id}`;
+    await this.feishu.setLedger(actorId, url);
+    this.logger.log(`已新建飞书台账 by=${actorId}`);
+    const shared = await this.share(shareEmail);
+    return { url, shared: shared.shared, message: shared.shared ? `已建好并共享给 ${shareEmail}` : `表格已建好，但共享失败：${shared.message}` };
+  }
+
+  /** 把当前台账表共享给一个飞书邮箱（可管理权限） */
+  async share(email: string): Promise<LedgerTableResult> {
+    try {
+      const token = await this.feishu.tenantToken();
+      const { appToken } = await this.feishu.ledgerTable();
+      await this.feishu.call(`/drive/v1/permissions/${appToken}/members?type=bitable&need_notification=true`, {
+        token,
+        body: { member_type: 'email', member_id: email, perm: 'full_access' },
+      });
+      return { url: null, shared: true, message: `已共享给 ${email}` };
+    } catch (error) {
+      return { url: null, shared: false, message: describeFeishuError(error) };
     }
   }
 

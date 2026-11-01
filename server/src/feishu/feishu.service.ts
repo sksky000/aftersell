@@ -82,6 +82,13 @@ export class FeishuService {
     return (await this.get())!;
   }
 
+  /** 一键建表后把台账指向新表并开启同步 */
+  async setLedger(actorId: string, ledgerUrl: string): Promise<void> {
+    const s = await this.stored();
+    if (!s) throw new BadRequestException('请先保存 App ID / App Secret');
+    await this.settings.set(KEY, { ...s, ledgerUrl, ledgerEnabled: true, resolvedAppToken: null } satisfies Stored, actorId);
+  }
+
   async credentials(): Promise<{ appId: string; appSecret: string } | null> {
     const s = await this.stored();
     if (!s?.secretCipher) return null;

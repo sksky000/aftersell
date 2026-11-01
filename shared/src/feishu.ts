@@ -30,6 +30,16 @@ export interface FeishuTestResult {
   fields: { name: string; used: boolean }[];
 }
 
+/** 一键新建台账 / 共享台账 */
+export const ledgerShareSchema = z.object({ email: z.string().trim().toLowerCase().email('请填写正确的飞书邮箱') }).strict();
+export type LedgerShareRequest = z.infer<typeof ledgerShareSchema>;
+export interface LedgerTableResult {
+  /** 新建时返回表格链接 */
+  url: string | null;
+  shared: boolean;
+  message: string;
+}
+
 export interface LedgerStatusDto {
   enabled: boolean;
   rows: number;

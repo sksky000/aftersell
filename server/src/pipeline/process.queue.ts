@@ -67,6 +67,8 @@ export class ProcessQueue implements OnModuleInit, OnApplicationShutdown {
     });
     this.worker.on('error', (err) => this.logger.error(`处理队列错误: ${err.message}`));
     this.llm.onSettingsChanged(() => this.backfill());
+    const fixed = await this.classify.correctLanguages();
+    if (fixed) this.logger.log(`按现行规则纠正客户语言 ${fixed} 封`);
     await this.backfill();
   }
 

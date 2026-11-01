@@ -117,6 +117,8 @@ export class EmailsService {
     if (q.pipelineState) conditions.push(eq(emailMessage.pipelineState, q.pipelineState));
     if (q.safetyHazard) conditions.push(eq(emailMessage.isSafetyHazard, q.safetyHazard === 'true'));
     if (q.contactStage) conditions.push(eq(emailMessage.isFollowUp, q.contactStage === 'follow_up'));
+    if (q.priority) conditions.push(inArray(emailMessage.urgency, ['urgent', 'high']));
+    if (q.evidenceIncomplete) conditions.push(inArray(emailMessage.evidenceStatus, ['partial', 'missing']));
     if (q.search) {
       const term = `%${escapeLike(q.search)}%`;
       const match = or(

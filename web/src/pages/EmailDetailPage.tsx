@@ -366,7 +366,7 @@ export default function EmailDetailPage() {
         </div>
 
         <div className="space-y-4">
-          {email.pipelineState !== 'ingested' && email.pipelineState !== 'failed' && email.status === 'pending_review' && <SopCard email={email} />}
+          {email.pipelineState !== 'ingested' && email.pipelineState !== 'failed' && <SopCard email={email} />}
 
           <Card className="shadow-none">
             <CardHeader className="pb-3">

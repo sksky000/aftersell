@@ -13,6 +13,10 @@ export interface InboxFilters {
   safetyHazard: '' | 'true' | 'false';
   search: string;
   contactStage: ContactStage;
+  /** 以下三项只由顶部统计卡设置 */
+  pipelineState: '' | 'ingested';
+  priority: '' | 'urgent_or_high';
+  evidenceIncomplete: '' | 'true';
 }
 
 export const DEFAULT_FILTERS: InboxFilters = {
@@ -24,6 +28,9 @@ export const DEFAULT_FILTERS: InboxFilters = {
   safetyHazard: '',
   search: '',
   contactStage: 'all',
+  pipelineState: '',
+  priority: '',
+  evidenceIncomplete: '',
 };
 
 const PAGE_SIZE = 200;

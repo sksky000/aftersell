@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne } from 'drizzle-orm';
 import { DB, type Database } from '../db/db.module';
 import { emailAttachment, emailMessage } from '../db/schema';
+import { detectCustomerLanguage } from '../mail/language';
 import { loadPrompt } from '../llm/prompts';
 import { LlmService } from '../llm/llm.service';
 import { AdjudicationService, adjudicationKey } from './adjudication.service';
@@ -60,6 +61,25 @@ export class ClassifyService {
         updatedAt: new Date(),
       })
       .where(eq(emailMessage.id, emailId));
+  }
+
+  /**
+   * 语言改由代码判定之前入库的邮件，language 可能被模型判成 zh（中文转发头带偏）。
+   * 启动时按现行规则重判一次，纯本地计算，不调模型；判定一致的不动。
+   */
+  async correctLanguages(): Promise<number> {
+    const rows = await this.db
+      .select({ id: emailMessage.id, subject: emailMessage.subject, bodyText: emailMessage.bodyText, fromAddress: emailMessage.fromAddress, language: emailMessage.language })
+      .from(emailMessage)
+      .where(and(eq(emailMessage.language, 'zh'), ne(emailMessage.pipelineState, 'ingested')));
+    let fixed = 0;
+    for (const row of rows) {
+      const language = detectCustomerLanguage(row, 'zh');
+      if (language === row.language) continue;
+      await this.db.update(emailMessage).set({ language }).where(eq(emailMessage.id, row.id));
+      fixed += 1;
+    }
+    return fixed;
   }
 
   /** 分类彻底失败：归 other、标记待人工，看板上单独成组 */

@@ -18,6 +18,13 @@ const FIELDS: { key: SelectKey; label: string; all: string; options: Record<stri
   { key: 'evidenceStatus', label: '凭证齐全度', all: '全部凭证状态', options: EVIDENCE_LABELS },
 ];
 
+/** 手动改下拉时，清掉统计卡设下的同类隐藏条件，免得两者叠加却看不出来 */
+const OVERRIDES: Partial<Record<SelectKey, Partial<InboxFilters>>> = {
+  status: { pipelineState: '' },
+  urgency: { priority: '' },
+  evidenceStatus: { evidenceIncomplete: '' },
+};
+
 const STAGES: { value: ContactStage; label: string }[] = [
   { value: 'all', label: '全部' },
   { value: 'first_contact', label: '首次来信' },
@@ -54,7 +61,7 @@ export default function FilterBar({ filters, onChange }: { filters: InboxFilters
           <Label className="text-xs text-muted-foreground">{field.label}</Label>
           <Select
             value={filters[field.key] || 'all'}
-            onValueChange={(v) => onChange({ ...filters, [field.key]: v === 'all' ? '' : v })}
+            onValueChange={(v) => onChange({ ...filters, ...OVERRIDES[field.key], [field.key]: v === 'all' ? '' : v })}
           >
             <SelectTrigger size="sm" className="w-full bg-white">
               <SelectValue />

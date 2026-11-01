@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Inbox, LogOut, Settings } from 'lucide-react';
 import { ROLE_LABELS } from '@aftersell/shared';
 import { useAuth } from '@/auth';
+import { useNewVersionNotice } from '@/lib/useNewVersionNotice';
 
 const NAV_ITEMS = [
   { to: '/inbox', label: '邮件看板', icon: Inbox, also: '/emails/' },
@@ -11,6 +12,7 @@ const NAV_ITEMS = [
 export default function Layout() {
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
+  useNewVersionNotice();
 
   return (
     <div className="w-screen h-screen flex">

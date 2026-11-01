@@ -149,7 +149,7 @@ export default function InboxPage() {
         </div>
         <SyncBar status={sync.status} busy={sync.busy} onRun={sync.runNow} onFiltersChanged={sync.refresh} />
       </div>
-      {stats && <StatsCards stats={stats} />}
+      {stats && <StatsCards stats={stats} filters={filters} onSelect={setFilters} />}
       <FilterBar filters={filters} onChange={setFilters} />
       {content}
     </div>

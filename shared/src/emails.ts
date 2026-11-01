@@ -166,6 +166,10 @@ export const emailListQuerySchema = z
     pipelineState: optionalEnum(PIPELINE_STATES),
     safetyHazard: optionalEnum(['true', 'false'] as const),
     contactStage: optionalEnum(['first_contact', 'follow_up'] as const),
+    /** 看板统计卡：紧急或高优先 */
+    priority: optionalEnum(['urgent_or_high'] as const),
+    /** 看板统计卡：凭证部分缺失或全缺 */
+    evidenceIncomplete: optionalEnum(['true'] as const),
     search: z.string().trim().max(200).optional(),
   })
   .strict();

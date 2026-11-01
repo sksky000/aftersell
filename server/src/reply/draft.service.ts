@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, like, lt, ne, or, sql } from 'drizzle-orm';
-import type { DraftDto, RuleHitDto } from '@aftersell/shared';
+import type { DraftDto, Language, RuleHitDto } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
 import {
   attachmentRecognition,
@@ -18,7 +18,7 @@ import { LlmService } from '../llm/llm.service';
 import { stripQuotedHistory } from '../mail/quote-strip';
 import { neutralize } from '../pipeline/classification';
 import { assembleContext } from './context';
-import { checkDraft, finalizeDraft } from './draft-output';
+import { checkDraft, finalizeDraft, isLanguageMismatch } from './draft-output';
 import { collectCaseEvidence, type EngineAttachment } from './evidence-state';
 import { deriveConversationStage, type ConversationEvent } from './history-stage';
 import { evaluateRules } from './rule-engine';
@@ -27,6 +27,10 @@ import { computeSignals } from './signals';
 
 const MAX_BODY = 8000;
 const MAX_OUTBOUND = 30;
+const LANGUAGE_RETRY = {
+  en: 'IMPORTANT: the customer wrote in English. Write the entire reply in English, with no Chinese characters at all.',
+  zh: 'IMPORTANT: the customer wrote in Chinese. Write the reply body in Chinese; keep only the fixed English closing.',
+};
 
 /** 非客诉的 other（广告、系统通知等）不生成草稿 */
 export function shouldDraft(row: Pick<EmailMessageRow, 'status' | 'isComplaint' | 'category' | 'pipelineState'>): boolean {
@@ -190,19 +194,30 @@ export class DraftService {
       'Write the reply now.',
     ].join('\n');
 
-    const { text, config } = await this.llm.generate('draft', { system: loadPrompt('draft'), user, maxTokens: 1500 }, { emailId });
+    const language = row.language as Language;
     const batteryPurchase = signals.isPurchaseFlow && row.partType === 'battery' && signals.modelKnown;
-    const draft = finalizeDraft(text, {
-      info,
-      batteryPhotos: batteryPurchase
-        ? { bicycle: evidence.bicyclePhoto.state === 'missing', battery: evidence.batteryPhoto.state === 'missing' }
-        : null,
-    });
+    const write = async (prompt: string) => {
+      const { text, config } = await this.llm.generate('draft', { system: loadPrompt('draft'), user: prompt, maxTokens: 1500 }, { emailId });
+      const draft = finalizeDraft(text, {
+        info,
+        batteryPhotos: batteryPurchase
+          ? { bicycle: evidence.bicyclePhoto.state === 'missing', battery: evidence.batteryPhoto.state === 'missing' }
+          : null,
+      });
+      return { draft, config };
+    };
+    let { draft, config } = await write(user);
+    // 语言写错重写一次；仍不对就留给检查项提示客服
+    if ((language === 'en' || language === 'zh') && isLanguageMismatch(draft, language)) {
+      this.logger.warn(`草稿语言与客户语言(${language})不符，重写一次 email=${emailId}`);
+      ({ draft, config } = await write(`${user}\n\n${LANGUAGE_RETRY[language]}`));
+    }
     const checks = checkDraft(draft, {
       evidence,
       priceAmounts: prices.map((p) => p.amount),
       knownText: [row.bodyText, ...events.map((e) => e.bodyText ?? '')].join('\n'),
       payment,
+      language,
     });
 
     const saved = await this.db.transaction(async (tx) => {

@@ -67,6 +67,7 @@ export const DRAFT_CHECK_CODES = [
   'unknown_price',
   'payment_mismatch',
   'empty_draft',
+  'language_mismatch',
 ] as const;
 export type DraftCheckCode = (typeof DRAFT_CHECK_CODES)[number];
 

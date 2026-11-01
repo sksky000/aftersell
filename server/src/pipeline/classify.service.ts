@@ -44,6 +44,8 @@ export class ClassifyService {
     const final = finalizeClassification(data, {
       attachments,
       bodyText: row.bodyText,
+      subject: row.subject,
+      fromAddress: row.fromAddress,
       adjudicatedNotOurs: await this.adjudications.has(adjudicationKey(row), 'non_phoenix_product'),
     });
     const { notOurProductReason, adjudicated, ...fields } = final;

@@ -1,4 +1,4 @@
-import type { DraftCheck, PaymentSettings } from '@aftersell/shared';
+import type { DraftCheck, Language, PaymentSettings } from '@aftersell/shared';
 import type { KnownCustomerInfo } from './customer-info';
 import type { CaseEvidence } from './evidence-state';
 
@@ -98,6 +98,15 @@ export function findRepeatedEvidenceRequest(draft: string, evidence: CaseEvidenc
   return null;
 }
 
+/** 草稿正文语言是否与客户语言不符：英文客户正文里出现中文，或中文客户正文里没有中文（落款固定英文，不算） */
+export function isLanguageMismatch(draft: string, language: Language): boolean {
+  const body = draft.replace(CLOSING_LINES.join('\n'), '');
+  const cjk = body.match(/[㐀-鿿豈-﫿]/g)?.length ?? 0;
+  if (language === 'en') return cjk > 0;
+  if (language === 'zh') return body.trim().length > 0 && cjk === 0;
+  return false;
+}
+
 function amountsIn(text: string): number[] {
   return [...text.matchAll(/\$\s?(\d{1,6}(?:\.\d{1,2})?)/g)].map((m) => Number(m[1]));
 }
@@ -105,10 +114,14 @@ function amountsIn(text: string): number[] {
 /** 生成后的确定性检查：不阻止保存，提示客服核对 */
 export function checkDraft(
   draft: string,
-  ctx: { evidence: CaseEvidence; priceAmounts: number[]; knownText: string; payment: PaymentSettings },
+  ctx: { evidence: CaseEvidence; priceAmounts: number[]; knownText: string; payment: PaymentSettings; language: Language },
 ): DraftCheck[] {
   const checks: DraftCheck[] = [];
   if (!draft.trim()) return [{ code: 'empty_draft', message: '模型没有生成内容' }];
+
+  if (isLanguageMismatch(draft, ctx.language)) {
+    checks.push({ code: 'language_mismatch', message: `客户来信是${ctx.language === 'zh' ? '中文' : '英文'}，草稿语言不一致，请修改或重新生成` });
+  }
 
   const repeated = findRepeatedEvidenceRequest(draft, ctx.evidence);
   if (repeated) checks.push({ code: 'repeated_evidence_request', message: `可能重复索要了本案已收到的材料：“${repeated.slice(0, 120)}”` });

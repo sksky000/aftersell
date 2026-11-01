@@ -131,6 +131,15 @@ export const RULE_SEED: RuleSeed[] = ([
     text: 'Customer language: Chinese. Reply in Chinese. Write the whole reply in Chinese (do NOT mix English sentences in the body). Keep the fixed English closing: "Thank you!" / "Best regards," / "PhoenixUS-support team". For asking multiple items use "为了协助您，请提供以下信息：" followed by a numbered list (1. 2. 3.).',
     source: '用户裁决 2026-10-28：中文客户正文中文、落款英文',
   },
+  {
+    key: 'language.en',
+    description: '英文客户：全文英文（上下文里的中文条目只作参考）',
+    slot: 'language',
+    priority: 50,
+    when: is('language', 'en'),
+    text: 'Customer language: English. Write the whole reply in English. Some context items (playbook, style preferences, notes) are written in Chinese for our team — use them as guidance only and never copy Chinese into the reply.',
+    source: '验收反馈 2026-11-01：英文来信生成了中文草稿',
+  },
 
   // ---------- 安全 ----------
   {

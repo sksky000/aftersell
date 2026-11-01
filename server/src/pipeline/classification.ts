@@ -8,10 +8,12 @@ import {
   URGENCIES,
   type Category,
   type EvidenceStatus,
+  type Language,
   type MissingEvidence,
   type PartType,
   type Urgency,
 } from '@aftersell/shared';
+import { detectCustomerLanguage } from '../mail/language';
 import { stripQuotedHistory } from '../mail/quote-strip';
 
 /** 模型输出的结构；校验失败会回馈给模型重试一次 */
@@ -90,21 +92,28 @@ export interface FinalClassification {
   missingEvidence: MissingEvidence[];
   summary: string;
   isComplaint: boolean;
-  language: string;
+  language: Language;
   confidence: number;
   adjudicated: boolean;
 }
 
 /**
  * 模型输出之后的确定性处理（不依赖模型）：
- * 客户裁决覆盖 → 非我方产品统一处理 → 安全隐患升紧急 → 有图片不再缺照片 → 凭证状态与缺失项一致。
+ * 语言按客户原文判定 → 客户裁决覆盖 → 非我方产品统一处理 → 安全隐患升紧急 → 有图片不再缺照片 → 凭证状态与缺失项一致。
  */
 export function finalizeClassification(
   raw: RawClassification,
-  ctx: { attachments: ClassifyAttachment[]; bodyText: string; adjudicatedNotOurs: boolean },
+  ctx: {
+    attachments: ClassifyAttachment[];
+    bodyText: string;
+    subject?: string | null;
+    fromAddress?: string | null;
+    adjudicatedNotOurs: boolean;
+  },
 ): FinalClassification {
   const result: FinalClassification = {
     ...raw,
+    language: detectCustomerLanguage({ subject: ctx.subject ?? null, bodyText: ctx.bodyText, fromAddress: ctx.fromAddress ?? null }, raw.language),
     summary: raw.summary.trim().slice(0, 300),
     confidence: Math.max(0, Math.min(100, Math.round(raw.confidence))),
     missingEvidence: [...new Set(raw.missingEvidence)],

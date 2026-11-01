@@ -5,7 +5,7 @@ import { compileModels, hasModelCodeText, matchModel } from '../knowledge/produc
 import { PRODUCT_KNOWLEDGE_SEED } from '../knowledge/product-knowledge.seed';
 import { parseInsert } from '../scripts/sql-insert';
 import { formatPlaybook, formatPrices, paymentParagraph } from './context';
-import { checkDraft, CLOSING_LINES, finalizeDraft, findRepeatedEvidenceRequest } from './draft-output';
+import { checkDraft, CLOSING_LINES, finalizeDraft, findRepeatedEvidenceRequest, isLanguageMismatch } from './draft-output';
 import { collectCaseEvidence } from './evidence-state';
 import { evaluate, evaluateRules, renderText, type EngineRule } from './rule-engine';
 import { RULE_SEED } from './rules.seed';
@@ -132,6 +132,8 @@ describe('signals', () => {
     expect(hitKeys({ fromAddress: 'abc.s01234.us@wal-mart.com' })).toEqual(expect.arrayContaining(['evidence_policy.walmart_store', 'action.walmart_store']));
     expect(hitKeys({ receivedAt: new Date('2026-10-20T00:00:00Z') })).toContain('channel.delayed_reply');
     expect(hitKeys({ language: 'zh' })).toContain('language.zh');
+    expect(hitKeys({ language: 'en' })).toContain('language.en');
+    expect(hitKeys({ language: 'zh' })).not.toContain('language.en');
   });
 
   it('safety warning: first contact yes, brakes only for safety or injury categories', () => {
@@ -178,9 +180,21 @@ describe('draft post-processing and checks', () => {
   it('flags unknown prices, repeated evidence requests and foreign payment accounts', () => {
     const { evidence } = collectCaseEvidence([{ id: 'm1', bodyText: 'Attached is my receipt.', attachments: [] }]);
     const draft = 'Hi Pat,\n\nCould you please provide a copy of your receipt? The price is $199. Pay via zelle other@example.test.';
-    const codes = checkDraft(draft, { evidence, priceAmounts: [225], knownText: '', payment }).map((c) => c.code);
+    const codes = checkDraft(draft, { evidence, priceAmounts: [225], knownText: '', payment, language: 'en' }).map((c) => c.code);
     expect(codes).toEqual(['repeated_evidence_request', 'unknown_price', 'payment_mismatch']);
     expect(findRepeatedEvidenceRequest('Please do not send the receipt again.', evidence)).toBeNull();
+  });
+
+  it('flags a reply written in the wrong language; the fixed English closing does not count', () => {
+    const zhDraft = finalizeDraft('您好，\n\n请提供电池照片。', { info: null });
+    const enDraft = finalizeDraft('Hi Pat,\n\nCould you please provide a photo of the battery?', { info: null });
+    expect(isLanguageMismatch(zhDraft, 'en')).toBe(true);
+    expect(isLanguageMismatch(zhDraft, 'zh')).toBe(false);
+    expect(isLanguageMismatch(enDraft, 'en')).toBe(false);
+    expect(isLanguageMismatch(enDraft, 'zh')).toBe(true);
+    expect(isLanguageMismatch(zhDraft, 'other')).toBe(false);
+    const { evidence } = collectCaseEvidence([{ id: 'm1', bodyText: 'Hi', attachments: [] }]);
+    expect(checkDraft(zhDraft, { evidence, priceAmounts: [], knownText: '', payment, language: 'en' }).map((c) => c.code)).toEqual(['language_mismatch']);
   });
 });
 

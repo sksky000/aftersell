@@ -7,6 +7,7 @@ import MailRoutingCard from './MailRoutingCard';
 import LlmSettingsCard from './LlmSettingsCard';
 import KnowledgeSettings from './KnowledgeSettings';
 import UsersCard from './UsersCard';
+import FeishuCard from './FeishuCard';
 
 export default function SettingsPage() {
   const { can } = useAuth();
@@ -23,6 +24,7 @@ export default function SettingsPage() {
     },
     can('supervisor') && { key: 'llm', label: '模型', content: <LlmSettingsCard /> },
     can('supervisor') && { key: 'knowledge', label: '业务知识', content: <KnowledgeSettings /> },
+    can('supervisor') && { key: 'feishu', label: '飞书', content: <FeishuCard /> },
     can('admin') && { key: 'users', label: '用户管理', content: <UsersCard /> },
     { key: 'account', label: '我的账号', content: <ChangePasswordForm /> },
   ].filter(Boolean) as { key: string; label: string; content: React.ReactNode }[];

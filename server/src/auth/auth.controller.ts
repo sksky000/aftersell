@@ -16,7 +16,7 @@ import { AllowPendingPassword, CurrentUser, Public, type AuthUser } from './deco
 
 export const SESSION_TTL_SECONDS = 7 * 24 * 3600;
 
-function cookieOptions(): CookieOptions {
+export function cookieOptions(): CookieOptions {
   return {
     httpOnly: true,
     sameSite: 'strict',

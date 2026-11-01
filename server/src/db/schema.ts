@@ -563,3 +563,20 @@ export const historyReply = pgTable(
   ],
 );
 export type HistoryReplyRow = typeof historyReply.$inferSelect;
+
+/** 飞书台账：每个客户一行（与妙搭一致），记下多维表格里的 record_id 与已上传的附件 */
+export const ledgerRow = pgTable(
+  'ledger_row',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** 客户身份：邮箱，或热线工单的 hotline:<姓名+电话> */
+    customerKey: varchar('customer_key', { length: 400 }).notNull(),
+    recordId: varchar('record_id', { length: 64 }),
+    /** email_attachment.id → 飞书 file_token */
+    fileTokens: jsonb('file_tokens').$type<Record<string, string>>().notNull().default({}),
+    syncedAt: timestamp('synced_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('ledger_row_customer_uq').on(t.customerKey)],
+);

@@ -19,6 +19,7 @@ import { SendModule } from './send/send.module';
 import { TranslateModule } from './translate/translate.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { LearningModule } from './learning/learning.module';
+import { FeishuModule } from './feishu/feishu.module';
 
 function staticWeb(): DynamicModule[] {
   const dir = env().WEB_DIST_DIR;
@@ -42,6 +43,7 @@ function staticWeb(): DynamicModule[] {
     TranslateModule,
     AnalyticsModule,
     LearningModule,
+    FeishuModule,
     PipelineModule,
     EmailsModule,
     ...staticWeb(),

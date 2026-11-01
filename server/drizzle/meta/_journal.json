@@ -57,6 +57,13 @@
       "when": 1793520176233,
       "tag": "0007_m7_learning",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793521392599,
+      "tag": "0008_m8_ledger",
+      "breakpoints": true
     }
   ]
 }

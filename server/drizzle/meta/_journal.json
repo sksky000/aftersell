@@ -50,6 +50,13 @@
       "when": 1793514473102,
       "tag": "0006_m5_deleted",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793520176233,
+      "tag": "0007_m7_learning",
+      "breakpoints": true
     }
   ]
 }

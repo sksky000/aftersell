@@ -28,4 +28,8 @@ export class SettingsService {
       .values({ key, value, updatedBy: actorId })
       .onConflictDoUpdate({ target: setting.key, set: { value, updatedBy: actorId, updatedAt: new Date() } });
   }
+
+  async remove(key: string): Promise<void> {
+    await this.db.delete(setting).where(eq(setting.key, key));
+  }
 }

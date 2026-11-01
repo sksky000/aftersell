@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { BarChart3, Inbox, LogOut, Reply, Settings } from 'lucide-react';
+import { BarChart3, GraduationCap, Inbox, LogOut, Reply, Settings } from 'lucide-react';
 import { ROLE_LABELS } from '@aftersell/shared';
 import { useAuth } from '@/auth';
 import { useNewVersionNotice } from '@/lib/useNewVersionNotice';
@@ -8,11 +8,12 @@ const NAV_ITEMS = [
   { to: '/inbox', label: '邮件看板', icon: Inbox, also: '/emails/' },
   { to: '/replied', label: '已回复', icon: Reply, also: null },
   { to: '/analytics', label: '数据分析', icon: BarChart3, also: null },
+  { to: '/learning', label: '学习与审核', icon: GraduationCap, also: null, role: 'supervisor' as const },
   { to: '/settings', label: '设置', icon: Settings, also: null },
 ];
 
 export default function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const { pathname } = useLocation();
   useNewVersionNotice();
 
@@ -24,7 +25,7 @@ export default function Layout() {
           <div className="text-xs text-muted-foreground mt-1">分类 · 审核 · 回复</div>
         </div>
         <nav className="px-2 space-y-1 mt-2 flex-1">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter((item) => !('role' in item && item.role) || can(item.role)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

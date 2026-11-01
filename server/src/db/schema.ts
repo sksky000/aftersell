@@ -367,6 +367,8 @@ export const replyCorrection = pgTable(
     finalContent: text('final_content').notNull(),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** 已被“改稿学习”归纳过 */
+    minedAt: timestamp('mined_at', { withTimezone: true }),
   },
   (t) => [index('reply_correction_email_idx').on(t.emailId)],
 );
@@ -415,6 +417,12 @@ export const styleRule = pgTable('style_rule', {
   enabled: boolean('enabled').notNull().default(true),
   source: varchar('source', { length: 300 }),
   sortOrder: integer('sort_order').notNull().default(0),
+  /** approved：生效中（仍受 enabled 开关控制）；draft：学习提出、待主管审核；rejected：已驳回 */
+  status: varchar('status', { length: 16 }).notNull().default('approved'),
+  /** 学习候选的依据：reply_correction.id 数组 */
+  correctionIds: jsonb('correction_ids').$type<string[]>().notNull().default([]),
+  reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   ...timestamps,
 });
 
@@ -452,6 +460,14 @@ export const knowledgeCard = pgTable('knowledge_card', {
   pricing: jsonb('pricing'),
   drift: text('drift'),
   enabled: boolean('enabled').notNull().default(true),
+  /** approved：生效中（仍受 enabled 开关控制）；draft：历史学习提出、待主管审核；rejected：已驳回 */
+  status: varchar('status', { length: 16 }).notNull().default('approved'),
+  /** miaoda：妙搭导入；history：从历史回复学习 */
+  source: varchar('source', { length: 16 }).notNull().default('miaoda'),
+  /** 生成候选所用的样本：history_reply.id 数组 */
+  sampleIds: jsonb('sample_ids').$type<string[]>().notNull().default([]),
+  reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   ...timestamps,
 });
 
@@ -517,3 +533,33 @@ export const deletedMessage = pgTable('deleted_message', {
   deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * 生产邮箱“已发送”里导入的历史回复（只读拉取），用于学习知识卡。
+ * reply_text 是我方写的部分，customer_text 是回复里引用的客户来信。
+ */
+export const historyReply = pgTable(
+  'history_reply',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    messageId: varchar('message_id', { length: 998 }).notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    subject: text('subject'),
+    toAddress: varchar('to_address', { length: 320 }),
+    replyText: text('reply_text').notNull(),
+    customerText: text('customer_text').notNull().default(''),
+    /** 以下由模型标注；labeled_at 为空表示还没标注 */
+    isAfterSales: boolean('is_after_sales'),
+    category: categoryEnum('category'),
+    partType: partTypeEnum('part_type'),
+    customerSentMedia: boolean('customer_sent_media'),
+    labeledAt: timestamp('labeled_at', { withTimezone: true }),
+    labelError: text('label_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('history_reply_message_id_uq').on(t.messageId),
+    index('history_reply_cluster_idx').on(t.category, t.partType),
+  ],
+);
+export type HistoryReplyRow = typeof historyReply.$inferSelect;

@@ -151,7 +151,12 @@ export class KnowledgeService implements OnModuleInit {
   // ---------- 知识卡 ----------
 
   async listCards(): Promise<KnowledgeCardDto[]> {
-    const rows = await this.db.select().from(knowledgeCard).orderBy(asc(knowledgeCard.category), asc(knowledgeCard.partType));
+    // 待审 / 驳回的候选在“学习与审核”页处理，这里只列生效中的
+    const rows = await this.db
+      .select()
+      .from(knowledgeCard)
+      .where(eq(knowledgeCard.status, 'approved'))
+      .orderBy(asc(knowledgeCard.category), asc(knowledgeCard.partType));
     return rows.map(toCardDto);
   }
 
@@ -172,6 +177,7 @@ export class KnowledgeService implements OnModuleInit {
       .where(
         and(
           eq(knowledgeCard.enabled, true),
+          eq(knowledgeCard.status, 'approved'),
           eq(knowledgeCard.category, category),
           eq(knowledgeCard.imageFlag, hasImages ? 'with_images' : 'no_images'),
           or(eq(knowledgeCard.partType, partType), eq(knowledgeCard.partType, 'multiple')),
@@ -184,7 +190,11 @@ export class KnowledgeService implements OnModuleInit {
   // ---------- 风格条目 ----------
 
   async listStyles(): Promise<StyleRuleDto[]> {
-    const rows = await this.db.select().from(styleRule).orderBy(asc(styleRule.sortOrder), asc(styleRule.createdAt));
+    const rows = await this.db
+      .select()
+      .from(styleRule)
+      .where(eq(styleRule.status, 'approved'))
+      .orderBy(asc(styleRule.sortOrder), asc(styleRule.createdAt));
     return rows.map(toStyleDto);
   }
 
@@ -196,6 +206,7 @@ export class KnowledgeService implements OnModuleInit {
       .where(
         and(
           eq(styleRule.enabled, true),
+          eq(styleRule.status, 'approved'),
           or(isNull(styleRule.category), eq(styleRule.category, category as StyleRuleRow['category'] & string)),
           or(isNull(styleRule.partType), eq(styleRule.partType, partType as StyleRuleRow['partType'] & string)),
         ),

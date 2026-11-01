@@ -19,7 +19,7 @@ function ids(value: string | null | undefined): string[] {
 }
 
 /** 企业邮箱的“已发送”：优先 \Sent 特殊用途，其次按常见名字 */
-async function findSentMailbox(client: ImapFlow): Promise<string | null> {
+export async function findSentMailbox(client: ImapFlow): Promise<string | null> {
   const boxes = await client.list();
   const special = boxes.find((b) => b.specialUse === '\\Sent');
   if (special) return special.path;

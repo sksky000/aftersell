@@ -9,3 +9,4 @@ export * from './reply';
 export * from './send';
 export * from './snippets';
 export * from './analytics';
+export * from './learning';

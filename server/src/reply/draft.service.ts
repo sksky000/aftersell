@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, like, lt, ne, or, sql } from 'drizzle-orm';
 import type { DraftDto, Language, RuleHitDto } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
@@ -9,6 +9,7 @@ import {
   emailReply,
   outboundMessage,
   ruleHit,
+  upload,
   type EmailMessageRow,
   type EmailReplyRow,
 } from '../db/schema';
@@ -136,6 +137,7 @@ export class DraftService {
   async generate(emailId: string, actorId: string | null = null): Promise<DraftDto> {
     const [row] = await this.db.select().from(emailMessage).where(eq(emailMessage.id, emailId)).limit(1);
     if (!row) throw new NotFoundException('邮件不存在');
+    if (row.status === 'replied') throw new ConflictException('这封邮件已经回复，不再生成草稿');
 
     const { events, attachments } = await this.caseEvents(row);
     const current = attachments.get(row.id) ?? [];
@@ -253,18 +255,29 @@ export class DraftService {
     return this.toDto(saved);
   }
 
-  private async toDto(reply: EmailReplyRow): Promise<DraftDto> {
-    const [hits, descriptions] = await Promise.all([
+  async toDto(reply: EmailReplyRow): Promise<DraftDto> {
+    const [hits, descriptions, files] = await Promise.all([
       this.db.select().from(ruleHit).where(eq(ruleHit.replyId, reply.id)),
       this.rules.descriptions(),
+      reply.attachmentIds.length ? this.db.select().from(upload).where(inArray(upload.id, reply.attachmentIds)) : Promise.resolve([]),
     ]);
     const hitDtos: RuleHitDto[] = hits.map((h) => ({ ruleKey: h.ruleKey, slot: h.slot, description: descriptions.get(h.ruleKey) ?? h.ruleKey }));
+    const fileById = new Map(files.map((f) => [f.id, f]));
     return {
       id: reply.id,
       emailId: reply.emailId,
       version: reply.version,
       content: reply.draftContent,
       status: reply.status,
+      finalContent: reply.finalContent,
+      html: reply.htmlContent,
+      attachments: reply.attachmentIds.flatMap((id) => {
+        const f = fileById.get(id);
+        return f ? [{ id: f.id, filename: f.filename, contentType: f.contentType, size: f.size }] : [];
+      }),
+      subjectSent: reply.subjectSent,
+      sentTo: reply.sentTo,
+      sentAt: reply.sentAt?.toISOString() ?? null,
       provider: reply.provider,
       model: reply.model,
       createdAt: reply.createdAt.toISOString(),
@@ -273,7 +286,7 @@ export class DraftService {
     };
   }
 
-  private async latestRow(emailId: string): Promise<EmailReplyRow | null> {
+  async latestRow(emailId: string): Promise<EmailReplyRow | null> {
     const [reply] = await this.db
       .select()
       .from(emailReply)

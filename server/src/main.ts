@@ -27,6 +27,8 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.use(cookieParser());
+  // 富文本回复可能较大（粘贴的格式）；图片走上传接口，不在 JSON 里
+  app.useBodyParser('json', { limit: '2mb' });
   app.setGlobalPrefix('api');
   app.enableShutdownHooks();
   await app.listen(config.PORT, '0.0.0.0');

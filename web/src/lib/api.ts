@@ -1,3 +1,5 @@
+import type { UploadDto } from '@aftersell/shared';
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -61,4 +63,23 @@ export const api = {
 
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** 上传文件（正文图片、回复附件）；multipart，不走 JSON */
+export async function uploadFile(file: File): Promise<UploadDto> {
+  const form = new FormData();
+  form.append('file', file);
+  let res: Response;
+  try {
+    res = await fetch('/api/uploads', { method: 'POST', credentials: 'same-origin', body: form });
+  } catch {
+    throw new ApiError(0, '网络连接失败，请检查网络后重试');
+  }
+  const text = await res.text();
+  const data: unknown = text ? safeJson(text) : null;
+  if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    throw new ApiError(res.status, res.status === 413 ? '文件超过 25MB 上限' : errorMessage(res.status, data));
+  }
+  return data as UploadDto;
 }

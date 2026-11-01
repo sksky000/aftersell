@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CATEGORIES, PART_TYPES } from './emails';
+import type { UploadDto } from './send';
 
 /**
  * 规则注入的槽位，按此顺序拼进草稿上下文。
@@ -80,8 +81,16 @@ export interface DraftDto {
   id: string;
   emailId: string;
   version: number;
+  /** 模型生成的草稿 */
   content: string;
-  status: 'draft' | 'sent' | 'discarded';
+  status: 'draft' | 'sending' | 'sent' | 'discarded';
+  /** 客服编辑后保存 / 发出的内容；null 表示还没编辑过 */
+  finalContent: string | null;
+  html: string | null;
+  attachments: UploadDto[];
+  subjectSent: string | null;
+  sentTo: string | null;
+  sentAt: string | null;
   provider: string | null;
   model: string | null;
   createdAt: string;

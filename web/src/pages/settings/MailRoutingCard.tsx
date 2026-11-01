@@ -6,21 +6,26 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/auth';
 import { api, messageOf } from '@/lib/api';
 
-type FormState = Record<keyof MailRouting, string>;
+type ListKey = 'hotlineSenders' | 'leaderForwardAddresses' | 'ownAddresses' | 'sendAllowlist';
+type FormState = Record<ListKey, string> & { sendTestMode: boolean };
 
-const FIELDS: { key: keyof MailRouting; label: string; hint: string }[] = [
+const FIELDS: { key: ListKey; label: string; hint: string }[] = [
   { key: 'hotlineSenders', label: '热线工单发件地址', hint: '热线平台转发 800 电话记录所用的地址；“仅拉取热线工单”按此识别' },
   { key: 'leaderForwardAddresses', label: '领导转发地址', hint: '领导把客户邮件转发进来时的地址；会从转发内容里解析出真正的客户' },
   { key: 'ownAddresses', label: '我方地址', hint: '客服信箱等我方地址；解析转发邮件时不会被当成客户' },
+  { key: 'sendAllowlist', label: '发信白名单', hint: '测试模式下，回复只能发到这些地址' },
 ];
 
 const toForm = (r: MailRouting): FormState => ({
   hotlineSenders: r.hotlineSenders.join('\n'),
   leaderForwardAddresses: r.leaderForwardAddresses.join('\n'),
   ownAddresses: r.ownAddresses.join('\n'),
+  sendAllowlist: r.sendAllowlist.join('\n'),
+  sendTestMode: r.sendTestMode,
 });
 
 const splitList = (text: string) => text.split(/[\s,;，；]+/).filter(Boolean);
@@ -57,6 +62,8 @@ export default function MailRoutingCard() {
       hotlineSenders: splitList(form.hotlineSenders),
       leaderForwardAddresses: splitList(form.leaderForwardAddresses),
       ownAddresses: splitList(form.ownAddresses),
+      sendAllowlist: splitList(form.sendAllowlist),
+      sendTestMode: form.sendTestMode,
     });
     if (!parsed.success) {
       toast.error(parsed.error.issues[0]?.message ?? '请检查输入');
@@ -104,7 +111,7 @@ export default function MailRoutingCard() {
       </CardHeader>
       <CardContent>
         <form className="space-y-5" onSubmit={(e) => void onSave(e)}>
-          <fieldset disabled={!editable} className="grid grid-cols-3 gap-4">
+          <fieldset disabled={!editable} className="grid grid-cols-4 gap-4">
             {FIELDS.map((f) => (
               <div key={f.key} className="space-y-2">
                 <Label htmlFor={f.key}>{f.label}</Label>
@@ -119,6 +126,20 @@ export default function MailRoutingCard() {
               </div>
             ))}
           </fieldset>
+          <div className="flex items-start gap-3 rounded-md border border-border p-3">
+            <Switch
+              id="sendTestMode"
+              checked={form.sendTestMode}
+              disabled={!editable}
+              onCheckedChange={(v) => setForm({ ...form, sendTestMode: v })}
+            />
+            <div className="space-y-1">
+              <Label htmlFor="sendTestMode">发信测试模式</Label>
+              <p className="text-xs text-muted-foreground">
+                开启时，回复只能发到“发信白名单”里的地址，其他一律拦截。测试邮箱里有转发进来的真实客户邮件，正式启用前请保持开启。
+              </p>
+            </div>
+          </div>
           {editable && (
             <Button type="submit" disabled={saving || !dirty}>
               {saving ? <Spinner className="size-4" /> : <Save className="size-4" />}

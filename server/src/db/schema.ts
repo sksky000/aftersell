@@ -255,7 +255,8 @@ export const llmCall = pgTable(
 );
 
 export const ruleSlotEnum = pgEnum('rule_slot', RULE_SLOTS);
-export const replyStatusEnum = pgEnum('reply_status', ['draft', 'sent', 'discarded']);
+/** sending：已占用发送幂等键、SMTP 尚未返回；失败会退回 draft */
+export const replyStatusEnum = pgEnum('reply_status', ['draft', 'sending', 'sent', 'discarded']);
 
 /**
  * 规则引擎条目：条件（JSON logic，对 CaseSignals 求值）+ 注入文案。
@@ -286,17 +287,85 @@ export const emailReply = pgTable(
     version: integer('version').notNull(),
     status: replyStatusEnum('status').notNull().default('draft'),
     draftContent: text('draft_content').notNull(),
-    /** M4：客服编辑后实际发出的内容 */
+    /** 客服编辑后保存 / 实际发出的纯文本 */
     finalContent: text('final_content'),
+    /** 编辑器里的 HTML（图片引用 /api/uploads/:id，发送时换成 cid） */
+    htmlContent: text('html_content'),
+    /** 回复附件，upload.id 数组 */
+    attachmentIds: jsonb('attachment_ids').$type<string[]>().notNull().default([]),
     /** 送给模型的上下文（不含 system prompt），供排查与回放 */
     context: text('context'),
     checks: jsonb('checks').$type<DraftCheck[]>().notNull().default([]),
     provider: varchar('provider', { length: 32 }),
     model: varchar('model', { length: 100 }),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    /** 发送幂等键：同一个键只发一封 */
+    sendIdempotencyKey: varchar('send_idempotency_key', { length: 64 }),
+    replyMessageId: varchar('reply_message_id', { length: 998 }),
+    subjectSent: text('subject_sent'),
+    sentTo: varchar('sent_to', { length: 320 }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    sentBy: uuid('sent_by').references(() => users.id, { onDelete: 'set null' }),
     ...timestamps,
   },
-  (t) => [uniqueIndex('email_reply_email_version_uq').on(t.emailId, t.version)],
+  (t) => [
+    uniqueIndex('email_reply_email_version_uq').on(t.emailId, t.version),
+    uniqueIndex('email_reply_send_key_uq').on(t.sendIdempotencyKey),
+  ],
+);
+
+/** 客服上传的文件：正文粘贴的图片、回复附件。内容在 Storage 里按 sha256 存放 */
+export const upload = pgTable('upload', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storageKey: varchar('storage_key', { length: 100 }).notNull(),
+  sha256: varchar('sha256', { length: 64 }).notNull(),
+  filename: varchar('filename', { length: 255 }).notNull(),
+  contentType: varchar('content_type', { length: 255 }).notNull(),
+  size: integer('size').notNull(),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const sendResultEnum = pgEnum('send_result', ['succeeded', 'failed']);
+
+/** 每次 SMTP 发送尝试（审计） */
+export const sendLog = pgTable(
+  'send_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    emailId: uuid('email_id')
+      .notNull()
+      .references(() => emailMessage.id, { onDelete: 'cascade' }),
+    replyId: uuid('reply_id').references(() => emailReply.id, { onDelete: 'set null' }),
+    idempotencyKey: varchar('idempotency_key', { length: 64 }).notNull(),
+    toAddress: varchar('to_address', { length: 320 }).notNull(),
+    subject: text('subject'),
+    messageId: varchar('message_id', { length: 998 }),
+    result: sendResultEnum('result').notNull(),
+    error: text('error'),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('send_log_email_idx').on(t.emailId)],
+);
+
+/** 发出的终稿与模型草稿不同时记一条，供后续提炼风格条目 */
+export const replyCorrection = pgTable(
+  'reply_correction',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    emailId: uuid('email_id')
+      .notNull()
+      .references(() => emailMessage.id, { onDelete: 'cascade' }),
+    replyId: uuid('reply_id').references(() => emailReply.id, { onDelete: 'set null' }),
+    category: categoryEnum('category').notNull(),
+    partType: partTypeEnum('part_type').notNull(),
+    originalDraft: text('original_draft').notNull(),
+    finalContent: text('final_content').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('reply_correction_email_idx').on(t.emailId)],
 );
 
 /** 每次草稿生成命中了哪些规则 */
@@ -415,3 +484,4 @@ export type EmailAccountRow = typeof emailAccount.$inferSelect;
 export type EmailMessageRow = typeof emailMessage.$inferSelect;
 export type EmailAttachmentRow = typeof emailAttachment.$inferSelect;
 export type SyncRunRow = typeof syncRun.$inferSelect;
+export type UploadRow = typeof upload.$inferSelect;

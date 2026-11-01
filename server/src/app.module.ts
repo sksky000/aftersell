@@ -16,6 +16,7 @@ import { PipelineModule } from './pipeline/pipeline.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { ReplyModule } from './reply/reply.module';
 import { SendModule } from './send/send.module';
+import { TranslateModule } from './translate/translate.module';
 
 function staticWeb(): DynamicModule[] {
   const dir = env().WEB_DIST_DIR;
@@ -36,6 +37,7 @@ function staticWeb(): DynamicModule[] {
     KnowledgeModule,
     ReplyModule,
     SendModule,
+    TranslateModule,
     PipelineModule,
     EmailsModule,
     ...staticWeb(),

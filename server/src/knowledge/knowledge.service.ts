@@ -4,11 +4,13 @@ import {
   EMPTY_PAYMENT_SETTINGS,
   paymentSettingsSchema,
   type KnowledgeCardDto,
+  type ParsedSaveSnippet,
   type PaymentSettings,
   type PriceItemDto,
   type ProductKnowledgeDto,
   type SavePriceItemRequest,
   type SaveStyleRuleRequest,
+  type SnippetDto,
   type StyleRuleDto,
 } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
@@ -16,14 +18,17 @@ import {
   knowledgeCard,
   priceItem,
   productKnowledge,
+  snippet,
   styleRule,
   type KnowledgeCardRow,
   type PriceItemRow,
+  type SnippetRow,
   type StyleRuleRow,
 } from '../db/schema';
 import { SettingsService } from '../settings/settings.service';
 import { compileModels, type CompiledModel } from './product-knowledge';
 import { PRODUCT_KNOWLEDGE_SEED } from './product-knowledge.seed';
+import { SNIPPET_SEED } from './snippets.seed';
 
 const PAYMENT_KEY = 'business.payment';
 
@@ -50,6 +55,28 @@ function toStyleDto(row: StyleRuleRow): StyleRuleDto {
     source: row.source,
     sortOrder: row.sortOrder,
   };
+}
+
+function toSnippetDto(row: SnippetRow): SnippetDto {
+  return {
+    id: row.id,
+    kind: row.kind,
+    label: row.label,
+    text: row.text,
+    category: row.category,
+    partType: row.partType,
+    enabled: row.enabled,
+    sortOrder: row.sortOrder,
+  };
+}
+
+/** 代入收款信息占位符；未配置时留下醒目标记，不让空白混进回复 */
+export function renderPlaceholders(text: string, p: PaymentSettings): string {
+  const value = (v: string) => v || '[未配置收款信息]';
+  return text
+    .replaceAll('{zelleEmail}', value(p.zelleEmail))
+    .replaceAll('{zelleName}', value(p.zelleName))
+    .replaceAll('{zellePhone}', value(p.zellePhone));
 }
 
 export function toCardDto(row: KnowledgeCardRow): KnowledgeCardDto {
@@ -82,6 +109,8 @@ export class KnowledgeService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     // 只补库里没有的车型，不覆盖设置页的修改
     await this.db.insert(productKnowledge).values(PRODUCT_KNOWLEDGE_SEED).onConflictDoNothing();
+    const added = await this.db.insert(snippet).values(SNIPPET_SEED).onConflictDoNothing().returning({ id: snippet.id });
+    if (added.length) this.logger.log(`新增话术 / SOP ${added.length} 条`);
     await this.reloadModels();
   }
 
@@ -189,6 +218,45 @@ export class KnowledgeService implements OnModuleInit {
   async deleteStyle(id: string): Promise<void> {
     const deleted = await this.db.delete(styleRule).where(eq(styleRule.id, id)).returning({ id: styleRule.id });
     if (!deleted.length) throw new NotFoundException('风格条目不存在');
+  }
+
+  // ---------- 快捷话术与 SOP ----------
+
+  async listSnippets(): Promise<SnippetDto[]> {
+    const rows = await this.db.select().from(snippet).orderBy(asc(snippet.kind), asc(snippet.sortOrder), asc(snippet.createdAt));
+    return rows.map(toSnippetDto);
+  }
+
+  /** 审核台用：只要启用的，收款信息占位符已代入 */
+  async activeSnippets(): Promise<SnippetDto[]> {
+    const [rows, payment] = await Promise.all([
+      this.db.select().from(snippet).where(eq(snippet.enabled, true)).orderBy(asc(snippet.kind), asc(snippet.sortOrder), asc(snippet.createdAt)),
+      this.payment(),
+    ]);
+    return rows.map((r) => ({ ...toSnippetDto(r), text: renderPlaceholders(r.text, payment) }));
+  }
+
+  async createSnippet(dto: ParsedSaveSnippet): Promise<SnippetDto> {
+    const [row] = await this.db.insert(snippet).values(dto).returning();
+    return toSnippetDto(row);
+  }
+
+  async updateSnippet(id: string, dto: ParsedSaveSnippet): Promise<SnippetDto> {
+    const [row] = await this.db.update(snippet).set({ ...dto, updatedAt: new Date() }).where(eq(snippet.id, id)).returning();
+    if (!row) throw new NotFoundException('条目不存在');
+    return toSnippetDto(row);
+  }
+
+  /** 内置条目删掉后下次启动会被种子补回来，所以只停用；返回 false 表示是停用而非删除 */
+  async deleteSnippet(id: string): Promise<boolean> {
+    const [row] = await this.db.select({ seedKey: snippet.seedKey }).from(snippet).where(eq(snippet.id, id)).limit(1);
+    if (!row) throw new NotFoundException('条目不存在');
+    if (row.seedKey) {
+      await this.db.update(snippet).set({ enabled: false, updatedAt: new Date() }).where(eq(snippet.id, id));
+      return false;
+    }
+    await this.db.delete(snippet).where(eq(snippet.id, id));
+    return true;
   }
 
   // ---------- 价格表 ----------

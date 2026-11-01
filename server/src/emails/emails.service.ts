@@ -14,6 +14,7 @@ import { DB, type Database } from '../db/db.module';
 import {
   emailAttachment,
   emailMessage,
+  outboundMessage,
   type AttachmentRecognitionRow,
   type EmailAttachmentRow,
   type EmailMessageRow,
@@ -227,16 +228,35 @@ export class EmailsService {
           .where(eq(emailMessage.threadId, current.threadId))
           .orderBy(sql`coalesce(${emailMessage.receivedAt}, ${emailMessage.createdAt})`)
       : [current];
-    const attachments = await this.attachmentsOf(rows.map((r) => r.id));
-    return rows.map((row) => ({
-      id: row.id,
-      role: 'customer',
-      subject: row.subject,
-      fromName: row.fromName ?? row.fromAddress,
-      sentAt: (row.receivedAt ?? row.createdAt).toISOString(),
-      content: stripQuotedHistory(row.bodyText),
-      attachments: attachments.get(row.id) ?? [],
-    }));
+    const [attachments, ours] = await Promise.all([
+      this.attachmentsOf(rows.map((r) => r.id)),
+      // 我方对这些来信的回复（系统发出 + 邮箱“已发送”同步）
+      this.db
+        .select()
+        .from(outboundMessage)
+        .where(inArray(outboundMessage.inReplyTo, rows.map((r) => r.messageId))),
+    ]);
+    const items: ThreadItemDto[] = [
+      ...rows.map((row) => ({
+        id: row.id,
+        role: 'customer' as const,
+        subject: row.subject,
+        fromName: row.fromName ?? row.fromAddress,
+        sentAt: (row.receivedAt ?? row.createdAt).toISOString(),
+        content: stripQuotedHistory(row.bodyText),
+        attachments: attachments.get(row.id) ?? [],
+      })),
+      ...ours.map((o) => ({
+        id: o.id,
+        role: 'ours' as const,
+        subject: o.subject,
+        fromName: o.toAddresses,
+        sentAt: (o.sentAt ?? o.createdAt).toISOString(),
+        content: stripQuotedHistory(o.bodyText),
+        attachments: [],
+      })),
+    ];
+    return items.sort((a, b) => a.sentAt.localeCompare(b.sentAt));
   }
 
   async openAttachment(emailId: string, attachmentId: string) {

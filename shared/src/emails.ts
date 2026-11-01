@@ -270,8 +270,10 @@ export interface EmailDetailDto extends EmailListItem {
 
 export interface ThreadItemDto {
   id: string;
-  role: 'customer';
+  /** customer：来信；ours：我方回复（系统发出或邮箱“已发送”同步来的） */
+  role: 'customer' | 'ours';
   subject: string | null;
+  /** 来信是发件人；我方回复是收件人 */
   fromName: string | null;
   sentAt: string;
   /** 去掉引用历史后的正文 */

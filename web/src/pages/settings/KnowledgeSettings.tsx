@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  CATEGORIES,
   CATEGORY_LABELS,
   PART_TYPE_LABELS,
   PART_TYPES,
@@ -9,11 +10,16 @@ import {
   RULE_SLOT_LABELS,
   RULE_SLOTS,
   savePriceItemSchema,
+  saveSnippetSchema,
+  SNIPPET_PLACEHOLDERS,
+  type DeleteSnippetResponse,
   type KnowledgeCardDto,
   type PaymentSettings,
   type PriceItemDto,
   type ProductKnowledgeDto,
   type RuleDto,
+  type SnippetDto,
+  type SnippetKind,
   type StyleRuleDto,
 } from '@aftersell/shared';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +33,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/auth';
 import { api, messageOf } from '@/lib/api';
+import { invalidateSnippets } from '@/lib/useSnippets';
 
 const TEXTAREA =
   'w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60';
@@ -309,6 +316,166 @@ function StylesCard() {
   );
 }
 
+// ---------- 快捷话术与 SOP ----------
+
+const ANY = '__any__';
+type SnippetForm = Omit<SnippetDto, 'id'>;
+
+function SnippetsCard({ kind }: { kind: SnippetKind }) {
+  const { items: all, reload } = useList<SnippetDto>('/knowledge/snippets');
+  const items = all?.filter((s) => s.kind === kind) ?? null;
+  const [editing, setEditing] = useState<{ id: string | null; form: SnippetForm } | null>(null);
+  const isSop = kind === 'sop';
+
+  const persist = async (id: string | null, form: SnippetForm, ok: string) => {
+    // 列表项带着 id，按 schema 字段重新组装（schema 是 strict 的）
+    const { kind: k, label, text, category, partType, enabled, sortOrder } = form;
+    const parsed = saveSnippetSchema.safeParse({ kind: k, label, text, category, partType, enabled, sortOrder });
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? '请检查输入');
+      return;
+    }
+    if (await run(() => (id ? api.put(`/knowledge/snippets/${id}`, parsed.data) : api.post('/knowledge/snippets', parsed.data)), ok)) {
+      invalidateSnippets();
+      setEditing(null);
+      void reload();
+    }
+  };
+  const remove = async (s: SnippetDto) => {
+    if (!window.confirm(`删除“${s.label}”？`)) return;
+    try {
+      const r = await api.delete<DeleteSnippetResponse>(`/knowledge/snippets/${s.id}`);
+      toast.success(r.deleted ? '已删除' : '内置条目不能删除，已停用');
+      invalidateSnippets();
+      void reload();
+    } catch (e) {
+      toast.error(messageOf(e));
+    }
+  };
+  const scopeOf = (s: SnippetDto) =>
+    [s.category && CATEGORY_LABELS[s.category], s.partType && `零件：${PART_TYPE_LABELS[s.partType]}`].filter(Boolean).join(' · ');
+  const blank: SnippetForm = { kind, label: '', text: '', category: isSop ? 'other' : null, partType: null, enabled: true, sortOrder: 1000 };
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between space-y-0">
+        <div>
+          <CardTitle>{isSop ? '标准处理流程（SOP）' : '快捷话术'}</CardTitle>
+          <CardDescription className="mt-1.5">
+            {isSop
+              ? '按类别显示在审核台右侧，一行一步；指定零件的条目作为补充显示。'
+              : '审核台编辑框上方的按钮，点击插入到光标处。'}
+            可用占位符 {SNIPPET_PLACEHOLDERS.join(' ')}，显示时代入收款信息。
+          </CardDescription>
+        </div>
+        <Button size="sm" onClick={() => setEditing({ id: null, form: blank })}>
+          <Plus className="size-4" /> 添加
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {!items ? (
+          <Loading />
+        ) : (
+          items.map((s) => (
+            <div key={s.id} className="flex items-start gap-3 text-sm border-b border-border pb-2 last:border-0">
+              <Switch checked={s.enabled} onCheckedChange={(v) => void persist(s.id, { ...s, enabled: v }, v ? '已启用' : '已停用')} />
+              <div className={`flex-1 min-w-0 ${s.enabled ? '' : 'text-muted-foreground'}`}>
+                <div className="font-medium">
+                  {s.label}
+                  {isSop && <span className="ml-2 text-xs font-normal text-muted-foreground">{scopeOf(s)}</span>}
+                </div>
+                <div className="text-xs text-muted-foreground truncate">{s.text.replace(/\n/g, ' / ')}</div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setEditing({ id: s.id, form: { ...s } })}>
+                <Pencil className="size-4" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void remove(s)}>
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          ))
+        )}
+      </CardContent>
+      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editing?.id ? '修改' : '添加'}
+              {isSop ? '处理流程' : '快捷话术'}
+            </DialogTitle>
+          </DialogHeader>
+          {editing && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2 col-span-2">
+                <Label>{isSop ? '流程名称' : '按钮名称'}</Label>
+                <Input value={editing.form.label} onChange={(e) => setEditing({ ...editing, form: { ...editing.form, label: e.target.value } })} />
+              </div>
+              {isSop && (
+                <>
+                  <div className="space-y-2">
+                    <Label>适用类别</Label>
+                    <Select
+                      value={editing.form.category ?? ANY}
+                      onValueChange={(v) => setEditing({ ...editing, form: { ...editing.form, category: v === ANY ? null : (v as SnippetForm['category']) } })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ANY}>不限（零件补充）</SelectItem>
+                        {CATEGORIES.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {CATEGORY_LABELS[c]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>零件（可选）</Label>
+                    <Select
+                      value={editing.form.partType ?? ANY}
+                      onValueChange={(v) => setEditing({ ...editing, form: { ...editing.form, partType: v === ANY ? null : (v as SnippetForm['partType']) } })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ANY}>不限</SelectItem>
+                        {PART_TYPES.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {PART_TYPE_LABELS[t]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+              <div className="space-y-2 col-span-2">
+                <Label>{isSop ? '步骤（一行一步）' : '插入的英文内容'}</Label>
+                <textarea
+                  className={TEXTAREA}
+                  rows={isSop ? 8 : 6}
+                  value={editing.form.text}
+                  onChange={(e) => setEditing({ ...editing, form: { ...editing.form, text: e.target.value } })}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={editing.form.enabled} onCheckedChange={(v) => setEditing({ ...editing, form: { ...editing.form, enabled: v } })} />
+                启用
+              </label>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => editing && void persist(editing.id, editing.form, '已保存')}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 // ---------- 规则 ----------
 
 function RulesCard() {
@@ -501,6 +668,8 @@ export default function KnowledgeSettings() {
       <PaymentCard />
       <PricesCard />
       <StylesCard />
+      <SnippetsCard kind="quick" />
+      <SnippetsCard kind="sop" />
       <RulesCard />
       <CardsCard />
       <ProductsCard />

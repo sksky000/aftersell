@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { SettingsModule } from '../settings/settings.module';
-import { KnowledgeController } from './knowledge.controller';
+import { KnowledgeController, SnippetsController } from './knowledge.controller';
 import { KnowledgeService } from './knowledge.service';
 
 @Module({
   imports: [SettingsModule],
-  controllers: [KnowledgeController],
+  controllers: [KnowledgeController, SnippetsController],
   providers: [KnowledgeService],
   exports: [KnowledgeService],
 })

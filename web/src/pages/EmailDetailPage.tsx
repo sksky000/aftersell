@@ -35,9 +35,30 @@ import {
   URGENCY_BADGE_CLASS,
 } from './inbox/badges';
 import { senderOf } from './inbox/EmailCard';
+import { translateEmail, useTranslationToggle } from '@/components/useTranslationToggle';
 import ReplyPanel from './ReplyPanel';
+import SopCard from './SopCard';
 
 const POLL_MS = 4000;
+
+function EmailBody({ email }: { email: EmailDetailDto }) {
+  const translation = useTranslationToggle({ request: translateEmail(email.id), sourceKey: email.id });
+  return (
+    <Card className="shadow-none">
+      <CardContent className="p-5 space-y-5">
+        {email.language !== 'zh' && email.bodyText.trim() && <div className="-mt-2 -mr-2 flex justify-end">{translation.button}</div>}
+        <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">{email.bodyText || '（正文为空）'}</div>
+        {translation.panel}
+        {email.attachments.length > 0 && (
+          <div className="border-t border-border pt-4 space-y-3">
+            <div className="text-xs font-medium text-muted-foreground">附件 {email.attachments.length} 个</div>
+            <AttachmentList items={email.attachments} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function RecognitionNote({ att }: { att: EmailAttachmentDto }) {
   const r = att.recognition;
@@ -293,17 +314,7 @@ export default function EmailDetailPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_20rem] gap-6 items-start">
         <div className="space-y-6 min-w-0">
-          <Card className="shadow-none">
-            <CardContent className="p-5 space-y-5">
-              <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">{email.bodyText || '（正文为空）'}</div>
-              {email.attachments.length > 0 && (
-                <div className="border-t border-border pt-4 space-y-3">
-                  <div className="text-xs font-medium text-muted-foreground">附件 {email.attachments.length} 个</div>
-                  <AttachmentList items={email.attachments} />
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <EmailBody email={email} />
 
           {email.pipelineState !== 'ingested' && email.pipelineState !== 'failed' && (
             <ReplyPanel
@@ -319,21 +330,28 @@ export default function EmailDetailPage() {
           {others.length > 0 && (
             <Card className="shadow-none">
               <CardHeader>
-                <CardTitle className="text-base">同一案件的来信</CardTitle>
+                <CardTitle className="text-base">会话记录</CardTitle>
               </CardHeader>
               <CardContent className="space-y-5">
                 {thread.map((item) => (
-                  <div key={item.id} className={`border-l-2 pl-4 ${item.id === email.id ? 'border-primary' : 'border-border'}`}>
+                  <div
+                    key={item.id}
+                    className={`border-l-2 pl-4 ${item.id === email.id ? 'border-primary' : item.role === 'ours' ? 'border-green-500 ml-6' : 'border-border'}`}
+                  >
                     <div className="text-xs text-muted-foreground flex gap-2 flex-wrap">
                       <span>{formatDateTime(item.sentAt)}</span>
-                      <span>{item.fromName}</span>
+                      {item.role === 'ours' ? (
+                        <span className="text-green-700 dark:text-green-400">我方回复 → {item.fromName}</span>
+                      ) : (
+                        <span>{item.fromName}</span>
+                      )}
                       {item.id === email.id ? (
                         <span className="text-primary">当前邮件</span>
-                      ) : (
+                      ) : item.role === 'customer' ? (
                         <Link to={`/emails/${item.id}`} className="underline">
                           查看
                         </Link>
-                      )}
+                      ) : null}
                     </div>
                     <div className="text-sm font-medium mt-1">{item.subject || '（无主题）'}</div>
                     <div className="text-sm whitespace-pre-wrap break-words mt-1 line-clamp-6">{item.content}</div>
@@ -348,6 +366,8 @@ export default function EmailDetailPage() {
         </div>
 
         <div className="space-y-4">
+          {email.pipelineState !== 'ingested' && email.pipelineState !== 'failed' && email.status === 'pending_review' && <SopCard email={email} />}
+
           <Card className="shadow-none">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">分类结果</CardTitle>

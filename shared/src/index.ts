@@ -7,3 +7,4 @@ export * from './mail-routing';
 export * from './llm';
 export * from './reply';
 export * from './send';
+export * from './snippets';

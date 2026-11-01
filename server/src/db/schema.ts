@@ -27,6 +27,7 @@ import {
   PIPELINE_STATES,
   ROLES,
   RULE_SLOTS,
+  SNIPPET_KINDS,
   type DraftCheck,
   SYNC_RUN_STATUSES,
   SYNC_TRIGGERS,
@@ -118,6 +119,8 @@ export const emailMessage = pgTable(
     receivedAt: timestamp('received_at', { withTimezone: true }),
     bodyText: text('body_text').notNull().default(''),
     bodyHtml: text('body_html'),
+    /** 正文中文译文缓存（审核台“翻译”） */
+    translationZh: text('translation_zh'),
     inReplyTo: varchar('in_reply_to', { length: 998 }),
     refChain: text('ref_chain'),
     /** 同一案件的锚点 message_id；无法确定归属时为空，由人工判断 */
@@ -384,6 +387,26 @@ export const ruleHit = pgTable(
 );
 
 /** 风格条目：可单独开关；scope 为空表示所有邮件 */
+export const snippetKindEnum = pgEnum('snippet_kind', SNIPPET_KINDS);
+
+/** 快捷话术与 SOP（替代妙搭前端 sop-data.ts）；种子按 seed_key 只补缺，不覆盖设置页修改 */
+export const snippet = pgTable(
+  'snippet',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    seedKey: varchar('seed_key', { length: 100 }),
+    kind: snippetKindEnum('kind').notNull(),
+    label: varchar('label', { length: 60 }).notNull(),
+    text: text('text').notNull(),
+    category: categoryEnum('category'),
+    partType: partTypeEnum('part_type'),
+    enabled: boolean('enabled').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(1000),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('snippet_seed_key_uq').on(t.seedKey)],
+);
+
 export const styleRule = pgTable('style_rule', {
   id: uuid('id').primaryKey().defaultRandom(),
   text: text('text').notNull(),
@@ -485,3 +508,4 @@ export type EmailMessageRow = typeof emailMessage.$inferSelect;
 export type EmailAttachmentRow = typeof emailAttachment.$inferSelect;
 export type SyncRunRow = typeof syncRun.$inferSelect;
 export type UploadRow = typeof upload.$inferSelect;
+export type SnippetRow = typeof snippet.$inferSelect;

@@ -15,6 +15,7 @@ import {
   type UploadDto,
 } from '@aftersell/shared';
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor';
+import { translateText, useTranslationToggle } from '@/components/useTranslationToggle';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,6 +27,7 @@ import { useAuth } from '@/auth';
 import { api, messageOf, uploadFile } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { htmlToText, sanitizeReplyHtml, textToHtml } from '@/lib/html';
+import { useSnippets } from '@/lib/useSnippets';
 
 const POLL_MS = 4000;
 const AUTOSAVE_MS = 2000;
@@ -119,6 +121,8 @@ export default function ReplyPanel({ emailId, pending, error, canDraft, replied,
 
   const sent = draft?.status === 'sent';
   const locked = sent || replied || draft?.status === 'sending';
+  const quickSnippets = (useSnippets() ?? []).filter((s) => s.kind === 'quick');
+  const translation = useTranslationToggle({ request: translateText(text), sourceKey: text, label: '中文对照' });
 
   const save = useCallback(async () => {
     setSaving(true);
@@ -356,6 +360,22 @@ export default function ReplyPanel({ emailId, pending, error, canDraft, replied,
           <div className="text-sm text-muted-foreground">这封邮件已标记为已回复（可能是在邮箱客户端里回复的）。</div>
         ) : (
           <>
+            {quickSnippets.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-xs text-muted-foreground">快捷话术（点击插入到光标处）</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {quickSnippets.map((s) => (
+                    <Button key={s.id} variant="outline" size="sm" className="h-7 text-xs" title={s.text}
+                      // 不让按钮抢走编辑器的光标位置
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => editorRef.current?.insertText(s.text)}
+                    >
+                      {s.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
             <RichTextEditor
               ref={editorRef}
               value={initialHtml}
@@ -365,6 +385,7 @@ export default function ReplyPanel({ emailId, pending, error, canDraft, replied,
                 setDirty(true);
               }}
             />
+            {translation.panel}
             <AttachmentList
               items={attachments}
               onRemove={(id) => {
@@ -384,6 +405,7 @@ export default function ReplyPanel({ emailId, pending, error, canDraft, replied,
                 {saving ? '保存中…' : dirty ? '有未保存的修改' : draft?.finalContent != null ? '已保存' : ''}
               </span>
               <div className="ml-auto flex items-center gap-2">
+                {text.trim() && translation.button}
                 <Button variant="outline" size="sm" onClick={() => void save().then((ok) => ok && toast.success('已保存'))} disabled={saving || !dirty}>
                   <Save className="size-4" /> 保存
                 </Button>

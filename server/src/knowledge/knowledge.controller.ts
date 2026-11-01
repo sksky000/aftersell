@@ -2,20 +2,35 @@ import { Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, P
 import {
   paymentSettingsSchema,
   savePriceItemSchema,
+  saveSnippetSchema,
   saveStyleRuleSchema,
   toggleSchema,
   updateProductKnowledgeSchema,
+  type DeleteSnippetResponse,
   type KnowledgeCardDto,
+  type ParsedSaveSnippet,
   type PaymentSettings,
   type PriceItemDto,
   type ProductKnowledgeDto,
   type SavePriceItemRequest,
   type SaveStyleRuleRequest,
+  type SnippetDto,
   type StyleRuleDto,
 } from '@aftersell/shared';
 import { ZodBody } from '../common/zod-body';
 import { CurrentUser, Roles, type AuthUser } from '../auth/decorators';
 import { KnowledgeService } from './knowledge.service';
+
+/** 审核台读取快捷话术与 SOP：所有登录用户可用 */
+@Controller('snippets')
+export class SnippetsController {
+  constructor(private readonly knowledge: KnowledgeService) {}
+
+  @Get()
+  list(): Promise<SnippetDto[]> {
+    return this.knowledge.activeSnippets();
+  }
+}
 
 /** 业务知识：主管可查看与维护，收款信息仅管理员可改 */
 @Controller('knowledge')
@@ -67,6 +82,26 @@ export class KnowledgeController {
   @HttpCode(204)
   deleteStyle(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.knowledge.deleteStyle(id);
+  }
+
+  @Get('snippets')
+  snippets(): Promise<SnippetDto[]> {
+    return this.knowledge.listSnippets();
+  }
+
+  @Post('snippets')
+  createSnippet(@ZodBody(saveSnippetSchema) dto: ParsedSaveSnippet): Promise<SnippetDto> {
+    return this.knowledge.createSnippet(dto);
+  }
+
+  @Put('snippets/:id')
+  updateSnippet(@Param('id', ParseUUIDPipe) id: string, @ZodBody(saveSnippetSchema) dto: ParsedSaveSnippet): Promise<SnippetDto> {
+    return this.knowledge.updateSnippet(id, dto);
+  }
+
+  @Delete('snippets/:id')
+  async deleteSnippet(@Param('id', ParseUUIDPipe) id: string): Promise<DeleteSnippetResponse> {
+    return { deleted: await this.knowledge.deleteSnippet(id) };
   }
 
   @Get('prices')

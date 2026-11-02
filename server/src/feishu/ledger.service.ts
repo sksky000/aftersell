@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { and, asc, eq, gt, ilike, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { FeishuTestResult, LedgerStatusDto, LedgerTableResult } from '@aftersell/shared';
+import type { FeishuChat, FeishuTestResult, LedgerStatusDto, LedgerTableResult } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
 import { emailAttachment, emailMessage, ledgerRow } from '../db/schema';
 import { customerIdentity } from '../mail/case-association';
@@ -97,10 +97,10 @@ export class LedgerService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /**
-   * 用应用身份新建一张台账（结构同妙搭台账），共享给指定的飞书邮箱，并把同步指向它。
-   * 表建在应用自己的云空间里，只有被共享的人能看到（在飞书“云文档 → 与我共享”里）。
+   * 用应用身份新建一张台账（结构同妙搭台账），授权给机器人所在的一个群，并把同步指向它。
+   * 表建在应用自己的云空间里，群成员在群里或“云文档 → 与我共享”里能看到。
    */
-  async createTable(actorId: string, shareEmail: string): Promise<LedgerTableResult> {
+  async createTable(actorId: string, chatId: string): Promise<LedgerTableResult> {
     const token = await this.feishu.tenantToken();
     const app = await this.feishu.call<{ app: { app_token: string; url: string; default_table_id?: string } }>('/bitable/v1/apps', {
       token,
@@ -118,20 +118,27 @@ export class LedgerService implements OnModuleInit, OnApplicationShutdown {
     const url = `${app.app.url}?table=${table.table_id}`;
     await this.feishu.setLedger(actorId, url);
     this.logger.log(`已新建飞书台账 by=${actorId}`);
-    const shared = await this.share(shareEmail);
-    return { url, shared: shared.shared, message: shared.shared ? `已建好并共享给 ${shareEmail}` : `表格已建好，但共享失败：${shared.message}` };
+    const shared = await this.share(chatId);
+    return { url, shared: shared.shared, message: shared.shared ? `已建好，${shared.message}` : `表格已建好，但授权给群失败：${shared.message}` };
   }
 
-  /** 把当前台账表共享给一个飞书邮箱（可管理权限） */
-  async share(email: string): Promise<LedgerTableResult> {
+  /** AI 助手机器人所在的群（需应用开通“获取群组信息”权限） */
+  async chats(): Promise<FeishuChat[]> {
+    const token = await this.feishu.tenantToken();
+    const r = await this.feishu.call<{ items?: { chat_id: string; name: string }[] }>('/im/v1/chats?page_size=100', { token });
+    return (r.items ?? []).map((c) => ({ chatId: c.chat_id, name: c.name || c.chat_id }));
+  }
+
+  /** 把当前台账授权给一个群（可编辑），群成员即可查看编辑 */
+  async share(chatId: string): Promise<LedgerTableResult> {
     try {
       const token = await this.feishu.tenantToken();
       const { appToken } = await this.feishu.ledgerTable();
-      await this.feishu.call(`/drive/v1/permissions/${appToken}/members?type=bitable&need_notification=true`, {
+      await this.feishu.call(`/drive/v1/permissions/${appToken}/members?type=bitable&need_notification=false`, {
         token,
-        body: { member_type: 'email', member_id: email, perm: 'full_access' },
+        body: { member_type: 'openchat', member_id: chatId, perm: 'edit' },
       });
-      return { url: null, shared: true, message: `已共享给 ${email}` };
+      return { url: null, shared: true, message: '已授权给所选的群，群成员可以查看和编辑' };
     } catch (error) {
       return { url: null, shared: false, message: describeFeishuError(error) };
     }

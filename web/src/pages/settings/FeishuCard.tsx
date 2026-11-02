@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, Plug, Plus, RefreshCw, Save, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { ledgerShareSchema, saveFeishuConfigSchema, type FeishuConfigDto, type FeishuTestResult, type LedgerStatusDto, type LedgerTableResult } from '@aftersell/shared';
+import {
+  ledgerShareSchema,
+  saveFeishuConfigSchema,
+  type FeishuChat,
+  type FeishuConfigDto,
+  type FeishuTestResult,
+  type LedgerStatusDto,
+  type LedgerTableResult,
+} from '@aftersell/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/auth';
@@ -15,20 +24,35 @@ import { formatDateTime } from '@/lib/format';
 
 /** 飞书应用（台账）配置；App Secret 加密保存，不回显 */
 export default function FeishuCard() {
-  const { can, user } = useAuth();
+  const { can } = useAuth();
   const admin = can('admin');
   const [form, setForm] = useState({ appId: '', appSecret: '', ledgerEnabled: false, ledgerUrl: '' });
   const [saved, setSaved] = useState<FeishuConfigDto | null | undefined>(undefined);
   const [ledger, setLedger] = useState<LedgerStatusDto | null>(null);
   const [test, setTest] = useState<FeishuTestResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const [shareEmail, setShareEmail] = useState(user?.email ?? '');
+  const [chats, setChats] = useState<FeishuChat[] | null>(null);
+  const [chatsError, setChatsError] = useState<string | null>(null);
+  const [chatId, setChatId] = useState('');
   const [tableResult, setTableResult] = useState<LedgerTableResult | null>(null);
 
-  /** 一键新建台账 / 共享当前台账 */
+  /** AI 助手所在的群：台账授权给群，群成员即可查看编辑（同招聘 AI） */
+  const loadChats = useCallback(async () => {
+    setChatsError(null);
+    try {
+      const list = await api.get<FeishuChat[]>('/feishu/chats');
+      setChats(list);
+      if (list.length === 1) setChatId(list[0].chatId);
+    } catch (e) {
+      setChats([]);
+      setChatsError(messageOf(e));
+    }
+  }, []);
+
+  /** 一键新建台账 / 把当前台账授权给群 */
   const ledgerAction = (kind: 'create' | 'share') => {
-    const parsed = ledgerShareSchema.safeParse({ email: shareEmail });
-    if (!parsed.success) return toast.error(parsed.error.issues[0]?.message ?? '请填写飞书邮箱');
+    const parsed = ledgerShareSchema.safeParse({ chatId });
+    if (!parsed.success) return toast.error(parsed.error.issues[0]?.message ?? '请选择一个飞书群');
     void act(async () => {
       const r = await api.post<LedgerTableResult>(`/feishu/ledger/${kind}`, parsed.data);
       setTableResult(r);
@@ -125,18 +149,40 @@ export default function FeishuCard() {
           </fieldset>
           {admin && saved?.hasAppSecret && (
             <div className="rounded-md border border-border p-3 space-y-2">
-              <div className="text-sm font-medium">{saved.ledgerUrl ? '共享台账' : '还没有台账表？'}</div>
+              <div className="text-sm font-medium">{saved.ledgerUrl ? '授权台账给群' : '还没有台账表？'}</div>
               <p className="text-xs text-muted-foreground">
                 {saved.ledgerUrl
-                  ? '把当前台账共享给一个飞书账号（可管理权限），对方在飞书“云文档 → 与我共享”里能看到。'
-                  : '用这个飞书应用新建一张与妙搭台账结构相同的表，自动开启同步，并共享给下面的飞书邮箱。需要应用已开通“查看、评论、编辑和管理多维表格”和“添加协作者”（docs:permission.member:create）权限。'}
+                  ? '把当前台账授权给 AI 助手所在的一个群（可编辑），群成员在飞书里就能打开。'
+                  : '用这个飞书应用新建一张与妙搭台账结构相同的表，自动开启同步，并授权给 AI 助手所在的一个群（同招聘 AI 的做法）。先把 AI 助手拉进售后的飞书群；应用需开通“获取群组信息”权限。'}
               </p>
               <div className="flex items-center gap-2 flex-wrap">
-                <Input className="w-72" value={shareEmail} placeholder="你的飞书邮箱" onChange={(e) => setShareEmail(e.target.value)} />
+                {chats === null ? (
+                  <Button variant="outline" size="sm" onClick={() => void loadChats()}>
+                    选择群
+                  </Button>
+                ) : (
+                  <Select value={chatId} onValueChange={setChatId}>
+                    <SelectTrigger className="w-72">
+                      <SelectValue placeholder={chats.length ? '选择一个群' : 'AI 助手还不在任何群里'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {chats.map((c) => (
+                        <SelectItem key={c.chatId} value={c.chatId}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {chats !== null && (
+                  <Button variant="ghost" size="sm" title="重新读取群列表" onClick={() => void loadChats()}>
+                    <RefreshCw className="size-4" />
+                  </Button>
+                )}
                 {saved.ledgerUrl ? (
                   <>
                     <Button variant="outline" size="sm" disabled={busy} onClick={() => ledgerAction('share')}>
-                      <Share2 className="size-4" /> 共享
+                      <Share2 className="size-4" /> 授权给群
                     </Button>
                     <a href={saved.ledgerUrl} target="_blank" rel="noreferrer" className="text-sm inline-flex items-center gap-1 hover:underline">
                       <ExternalLink className="size-4" /> 打开台账
@@ -148,6 +194,7 @@ export default function FeishuCard() {
                   </Button>
                 )}
               </div>
+              {chatsError && <div className="text-sm text-destructive">读取群列表失败：{chatsError}</div>}
               {tableResult && <div className={`text-sm ${tableResult.shared ? 'text-green-700' : 'text-destructive'}`}>{tableResult.message}</div>}
             </div>
           )}

@@ -2,6 +2,7 @@ import { Controller, Get, HttpCode, Post, Put } from '@nestjs/common';
 import {
   ledgerShareSchema,
   saveFeishuConfigSchema,
+  type FeishuChat,
   type FeishuConfigDto,
   type FeishuTestResult,
   type LedgerShareRequest,
@@ -57,13 +58,19 @@ export class FeishuController {
   @Post('ledger/create')
   @HttpCode(200)
   createTable(@CurrentUser() user: AuthUser, @ZodBody(ledgerShareSchema) dto: LedgerShareRequest): Promise<LedgerTableResult> {
-    return this.ledger.createTable(user.id, dto.email);
+    return this.ledger.createTable(user.id, dto.chatId);
   }
 
   @Roles('admin')
   @Post('ledger/share')
   @HttpCode(200)
   share(@ZodBody(ledgerShareSchema) dto: LedgerShareRequest): Promise<LedgerTableResult> {
-    return this.ledger.share(dto.email);
+    return this.ledger.share(dto.chatId);
+  }
+
+  @Roles('admin')
+  @Get('chats')
+  chats(): Promise<FeishuChat[]> {
+    return this.ledger.chats();
   }
 }

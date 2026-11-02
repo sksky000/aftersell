@@ -30,20 +30,12 @@ export interface FeishuTestResult {
   fields: { name: string; used: boolean }[];
 }
 
-/** 一键新建台账 / 授权台账：授权给机器人所在的飞书群（同招聘 AI 的做法），群成员即可查看编辑 */
-export const ledgerShareSchema = z.object({ chatId: z.string().trim().regex(/^oc_[A-Za-z0-9]+$/, '请选择一个飞书群') }).strict();
-export type LedgerShareRequest = z.infer<typeof ledgerShareSchema>;
+/** 一键新建台账 / 开启链接访问的结果 */
 export interface LedgerTableResult {
   /** 新建时返回表格链接 */
   url: string | null;
   shared: boolean;
   message: string;
-}
-
-/** AI 助手机器人所在的群 */
-export interface FeishuChat {
-  chatId: string;
-  name: string;
 }
 
 export interface LedgerStatusDto {

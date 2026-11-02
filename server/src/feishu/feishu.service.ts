@@ -41,7 +41,9 @@ export function describeFeishuError(error: unknown): string {
       1254040: '多维表格不存在，请检查链接',
       1254302: '应用没有这张多维表格的权限：请在表格右上角“…→ 添加文档应用”里加上这个应用',
     };
-    return `${hints[error.code] ?? error.message}（飞书错误码 ${error.code}）`;
+    // 缺权限时飞书原文会列出需要的权限名和申请链接，一并给出
+    const detail = error.code === 99991672 && error.message ? `。飞书原文：${error.message}` : '';
+    return `${hints[error.code] ?? error.message}${detail}（飞书错误码 ${error.code}）`;
   }
   return error instanceof Error ? error.message : String(error);
 }

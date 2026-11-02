@@ -40,6 +40,7 @@ interface FormState {
   syncIntervalMinutes: string;
   syncDateFrom: string;
   syncDateTo: string;
+  trialMode: boolean;
 }
 
 const EMPTY: FormState = {
@@ -58,6 +59,7 @@ const EMPTY: FormState = {
   syncIntervalMinutes: String(DEFAULT_SYNC_INTERVAL_MINUTES),
   syncDateFrom: '',
   syncDateTo: '',
+  trialMode: false,
 };
 
 function fromDto(d: MailAccountDto): FormState {
@@ -77,10 +79,16 @@ function fromDto(d: MailAccountDto): FormState {
     syncIntervalMinutes: String(d.syncIntervalMinutes),
     syncDateFrom: d.syncDateFrom ?? '',
     syncDateTo: d.syncDateTo ?? '',
+    trialMode: d.trialMode,
   };
 }
 
 const SWITCHES: { key: keyof FormState; label: string; hint: string }[] = [
+  {
+    key: 'trialMode',
+    label: '试跑模式（接生产邮箱与妙搭并行时打开）',
+    hint: '收件箱只读、不改已读等任何标记，按日期和新邮件顺序拉取；系统不发信。首次从“同步开始日期”起拉取，未设置则最近 2 天',
+  },
   { key: 'syncEnabled', label: '启用定时拉取', hint: '按下方间隔自动拉取新邮件；关闭后仍可在看板手动同步' },
   { key: 'keepUnread', label: '拉取后保持未读', hint: '不在邮箱里把邮件标为已读' },
   { key: 'hotlineOnly', label: '只拉热线工单', hint: '仅入库热线转发的工单邮件' },

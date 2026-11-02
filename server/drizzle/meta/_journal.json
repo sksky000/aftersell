@@ -64,6 +64,13 @@
       "when": 1793521392599,
       "tag": "0008_m8_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793588392462,
+      "tag": "0009_m9_trial",
+      "breakpoints": true
     }
   ]
 }

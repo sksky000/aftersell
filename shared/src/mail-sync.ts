@@ -26,6 +26,8 @@ export interface SyncRunDto {
 export interface SyncStatusDto {
   /** 是否已配置邮箱账号 */
   configured: boolean;
+  /** 试跑模式：生产邮箱只读接入、不发信 */
+  trialMode: boolean;
   /** 看板上的三组拉取开关；未配置邮箱时为 null */
   filters: { hotlineOnly: boolean; registrationOnly: boolean; firstContactOnly: boolean } | null;
   /** 有同步任务正在执行 */

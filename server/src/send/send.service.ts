@@ -18,6 +18,7 @@ import {
 import { DB, type Database } from '../db/db.module';
 import { emailMessage, emailReply, outboundMessage, replyCorrection, sendLog, upload, type EmailMessageRow, type UploadRow } from '../db/schema';
 import { describeMailError } from '../mail-config/mail-endpoint';
+import { isTrialMode } from '../mail/trial-mode';
 import { MailConfigService } from '../mail-config/mail-config.service';
 import { stripQuotedHistory } from '../mail/quote-strip';
 import { loadPrompt } from '../llm/prompts';
@@ -76,6 +77,7 @@ export class SendService {
     const row = await this.email(emailId);
     const t = resolveReplyTarget(row);
     if (!t.to) return { to: null, via: t.via, blockedReason: t.reason };
+    if (isTrialMode()) return { to: t.to, via: t.via, blockedReason: '试跑模式：系统不发信（生产邮箱只读接入，回复仍由客服在原系统发送）。正式切换时在 设置 → 邮箱 关闭试跑模式' };
     const routing = await this.mailRouting.get();
     const blockedReason = isRecipientAllowed(routing, t.to)
       ? null
@@ -174,6 +176,8 @@ export class SendService {
       throw new ConflictException('这封回复正在发送中，请稍候刷新');
     }
 
+    // 试跑模式：生产邮箱只读接入，任何情况都不发信（与发信白名单是两道独立的锁）
+    if (isTrialMode()) throw new BadRequestException('试跑模式：系统不发信（生产邮箱只读接入，回复仍由客服在原系统发送）。正式切换时在 设置 → 邮箱 关闭试跑模式');
     const row = await this.email(emailId);
     if (row.status === 'replied') throw new ConflictException('这封邮件已经回复过了');
     const target = resolveReplyTarget(row);

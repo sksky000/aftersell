@@ -83,6 +83,8 @@ export const emailAccount = pgTable('email_account', {
   syncIntervalMinutes: integer('sync_interval_minutes').notNull().default(DEFAULT_SYNC_INTERVAL_MINUTES),
   syncDateFrom: date('sync_date_from'),
   syncDateTo: date('sync_date_to'),
+  /** 试跑模式（M9）：收件箱只读、不改任何标记、按 UID 游标拉取，系统禁止发信 */
+  trialMode: boolean('trial_mode').notNull().default(false),
   lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
   ...timestamps,
@@ -580,3 +582,16 @@ export const ledgerRow = pgTable(
   },
   (t) => [uniqueIndex('ledger_row_customer_uq').on(t.customerKey)],
 );
+
+export const trialRatingEnum = pgEnum('trial_rating', ['ready', 'minor', 'major', 'unusable']);
+
+/** 试跑对比（M9）：主管对“AI 草稿 vs 客服实际回复”的打分 */
+export const trialReview = pgTable('trial_review', {
+  emailId: uuid('email_id')
+    .primaryKey()
+    .references(() => emailMessage.id, { onDelete: 'cascade' }),
+  rating: trialRatingEnum('rating').notNull(),
+  note: text('note'),
+  reviewerId: uuid('reviewer_id').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+});

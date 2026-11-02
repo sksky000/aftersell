@@ -8,6 +8,7 @@ import InboxPage from './pages/inbox/InboxPage';
 import RepliedPage from './pages/RepliedPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import LearningPage from './pages/LearningPage';
+import TrialPage from './pages/TrialPage';
 import EmailDetailPage from './pages/EmailDetailPage';
 import SettingsPage from './pages/settings/SettingsPage';
 
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="replied" element={<RepliedPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="learning" element={<LearningPage />} />
+        <Route path="trial" element={<TrialPage />} />
         <Route path="emails/:id" element={<EmailDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

@@ -100,6 +100,7 @@ export class MailSyncQueue implements OnModuleInit, OnApplicationShutdown {
     const manualState = manualJob ? await manualJob.getState() : null;
     return {
       configured: options !== null,
+      trialMode: options?.trialMode ?? false,
       filters: options?.filters ?? null,
       running: active > 0,
       queued: manualState === 'waiting' || manualState === 'prioritized',

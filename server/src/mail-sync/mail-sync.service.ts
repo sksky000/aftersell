@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { ImapFlow, type SearchObject } from 'imapflow';
+import { z } from 'zod';
 import type { SyncRunDto, SyncRunStatus, SyncTrigger } from '@aftersell/shared';
 import { DB, type Database } from '../db/db.module';
 import { deletedMessage, emailMessage, syncRun, type SyncRunRow } from '../db/schema';
@@ -15,6 +16,8 @@ import { IngestService } from './ingest.service';
 import { syncSentFolder } from './sent-sync';
 
 const TIMEOUT_MS = 30_000;
+const TRIAL_CURSOR_KEY = 'mail.trial_inbox_cursor';
+const trialCursorSchema = z.object({ uidValidity: z.string(), lastUid: z.number().int() });
 const HEADER_BATCH = 200;
 
 interface Counts {
@@ -51,6 +54,16 @@ export function dateWindow(from: string | null, to: string | null): Pick<SearchO
     window.before = before;
   }
   return window;
+}
+
+/** 试跑游标只前进到“从头连续都处理过”的最后一个 UID；中间没处理的（单次上限截断）下次接着拉 */
+export function advanceCursor(uids: number[], handled: Set<number>, resume: number | null): number {
+  let last = resume ?? 0;
+  for (const uid of [...uids].sort((a, b) => a - b)) {
+    if (!handled.has(uid)) break;
+    last = uid;
+  }
+  return last;
 }
 
 function summarize(c: Counts, options: SyncOptions): string {
@@ -151,7 +164,89 @@ export class MailSyncService {
     }
   }
 
+  /**
+   * 试跑模式：收件箱只读（EXAMINE），不改任何标记，按 UID 游标拉新邮件。
+   * 不能按“未读”拉——妙搭收信后会把邮件标为已读。首次从“同步开始日期”起（未设置则最近 2 天）。
+   */
+  private async pullInboxReadOnly(client: ImapFlow, options: SyncOptions): Promise<Counts> {
+    const counts: Counts = { fetched: 0, inserted: 0, duplicates: 0, filtered: 0, failed: 0 };
+    const filtering = hasActiveFilter(options.filters);
+    const limit = Math.max(1, options.maxPerRun);
+    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+    try {
+      const uidValidity = String(client.mailbox ? client.mailbox.uidValidity : '');
+      const cursor = await this.settings.get(TRIAL_CURSOR_KEY, trialCursorSchema.nullable(), null);
+      const resume = cursor && cursor.uidValidity === uidValidity ? cursor.lastUid : null;
+      const since = options.syncDateFrom ? new Date(`${options.syncDateFrom}T00:00:00Z`) : new Date(Date.now() - 2 * 86_400_000);
+      const found = await client.search(resume !== null ? { uid: `${resume + 1}:*` } : { since, ...dateWindow(null, options.syncDateTo) }, { uid: true });
+      // “n:*” 没有新邮件时也会返回最后一封，按游标再过滤
+      const uids = (Array.isArray(found) ? found : []).filter((u) => resume === null || u > resume).sort((a, b) => a - b);
+      // 已处理（入库 / 重复 / 不符合开关 / 失败）的 UID；游标只前进到连续处理完的位置，单次上限截断的部分下次接着拉
+      const handled = new Set<number>();
+      for (let offset = 0; offset < uids.length && counts.inserted + counts.failed < limit; offset += HEADER_BATCH) {
+        const batch: { uid: number; messageId: string | null }[] = [];
+        for await (const msg of client.fetch(uids.slice(offset, offset + HEADER_BATCH), { uid: true, envelope: true }, { uid: true })) {
+          const from = msg.envelope?.from?.[0]?.address ?? null;
+          if (filtering && !passesHeaderFilter(options.filters, from, msg.envelope?.subject ?? null)) {
+            counts.filtered += 1;
+            handled.add(msg.uid);
+            continue;
+          }
+          batch.push({ uid: msg.uid, messageId: msg.envelope?.messageId ?? null });
+        }
+        const ids = batch.flatMap((row) => (row.messageId ? [row.messageId] : []));
+        const known = ids.length
+          ? await this.db
+              .select({ messageId: emailMessage.messageId })
+              .from(emailMessage)
+              .where(inArray(emailMessage.messageId, ids))
+              .union(this.db.select({ messageId: deletedMessage.messageId }).from(deletedMessage).where(inArray(deletedMessage.messageId, ids)))
+          : [];
+        const knownIds = new Set(known.map((row) => row.messageId));
+        const todo: number[] = [];
+        for (const row of batch.sort((a, b) => a.uid - b.uid)) {
+          if (row.messageId && knownIds.has(row.messageId)) {
+            counts.duplicates += 1;
+            handled.add(row.uid);
+          }
+          else if (todo.length < limit - counts.inserted - counts.failed) todo.push(row.uid);
+          else break;
+        }
+        if (!todo.length) continue;
+        for await (const msg of client.fetch(todo, { uid: true, source: true, internalDate: true }, { uid: true })) {
+          counts.fetched += 1;
+          try {
+            if (!msg.source) throw new Error('邮件内容为空');
+            const email = await parseIncoming(msg.source, msg.internalDate ? new Date(msg.internalDate) : null);
+            if (filtering && !passesMessageFilter(options.filters, email.fromAddress, email.subject, email.bodyText)) {
+              counts.filtered += 1;
+            } else {
+              const result = await this.ingest.ingest(email);
+              if (result.status === 'inserted') {
+                counts.inserted += 1;
+                await this.processQueue.enqueue(result.id).catch((e: unknown) => this.logger.warn(`分类排队失败 email=${result.id}: ${describeMailError(e)}`));
+              } else {
+                counts.duplicates += 1;
+              }
+            }
+          } catch (error) {
+            // 试跑只读、不能靠“保持未读”重试：记失败，游标照常前进，避免一封坏信卡住后面的邮件
+            counts.failed += 1;
+            this.logger.warn(`试跑：单封邮件入库失败 uid=${msg.uid}: ${describeMailError(error)}`);
+          }
+          handled.add(msg.uid);
+        }
+      }
+      const lastDone = advanceCursor(uids, handled, resume);
+      if (uidValidity) await this.settings.set(TRIAL_CURSOR_KEY, { uidValidity, lastUid: lastDone }, null);
+      return counts;
+    } finally {
+      lock.release();
+    }
+  }
+
   private async pullInbox(client: ImapFlow, options: SyncOptions): Promise<Counts> {
+    if (options.trialMode) return this.pullInboxReadOnly(client, options);
     const counts: Counts = { fetched: 0, inserted: 0, duplicates: 0, filtered: 0, failed: 0 };
     const filtering = hasActiveFilter(options.filters);
     const limit = Math.max(1, options.maxPerRun);

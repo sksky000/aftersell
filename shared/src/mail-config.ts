@@ -33,6 +33,8 @@ export const saveMailAccountSchema = z
     syncIntervalMinutes: z.number().int().min(1, '拉取间隔至少 1 分钟').max(1440, '拉取间隔最多 1440 分钟'),
     syncDateFrom: dateString,
     syncDateTo: dateString,
+    /** 试跑模式：收件箱只读（不改已读等标记）、系统不发信，用于接生产邮箱与妙搭并行 */
+    trialMode: z.boolean().default(false),
   })
   .strict()
   .refine((d) => !d.syncDateFrom || !d.syncDateTo || d.syncDateFrom <= d.syncDateTo, {
@@ -57,6 +59,7 @@ export interface MailAccountDto {
   syncIntervalMinutes: number;
   syncDateFrom: string | null;
   syncDateTo: string | null;
+  trialMode: boolean;
   lastSyncAt: string | null;
   hasAuthCode: boolean;
   updatedAt: string;

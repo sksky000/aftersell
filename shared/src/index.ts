@@ -11,3 +11,4 @@ export * from './snippets';
 export * from './analytics';
 export * from './learning';
 export * from './feishu';
+export * from './trial';

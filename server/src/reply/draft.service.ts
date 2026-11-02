@@ -18,6 +18,7 @@ import { loadPrompt } from '../llm/prompts';
 import { LlmService } from '../llm/llm.service';
 import { detectCustomerLanguage } from '../mail/language';
 import { stripQuotedHistory } from '../mail/quote-strip';
+import { isTrialMode } from '../mail/trial-mode';
 import { neutralize } from '../pipeline/classification';
 import { assembleContext } from './context';
 import { checkDraft, finalizeDraft, isLanguageMismatch } from './draft-output';
@@ -36,7 +37,9 @@ const LANGUAGE_RETRY = {
 
 /** 非客诉的 other（广告、系统通知等）不生成草稿 */
 export function shouldDraft(row: Pick<EmailMessageRow, 'status' | 'isComplaint' | 'category' | 'pipelineState'>): boolean {
-  return row.status === 'pending_review' && row.pipelineState !== 'ingested' && (row.isComplaint || row.category !== 'other');
+  // 试跑时客服可能已在原系统回复：仍生成草稿，供“试跑对比”与实际回复对照
+  const open = row.status === 'pending_review' || (isTrialMode() && row.status === 'replied');
+  return open && row.pipelineState !== 'ingested' && (row.isComplaint || row.category !== 'other');
 }
 
 @Injectable()
@@ -137,7 +140,7 @@ export class DraftService {
   async generate(emailId: string, actorId: string | null = null): Promise<DraftDto> {
     const [row] = await this.db.select().from(emailMessage).where(eq(emailMessage.id, emailId)).limit(1);
     if (!row) throw new NotFoundException('邮件不存在');
-    if (row.status === 'replied') throw new ConflictException('这封邮件已经回复，不再生成草稿');
+    if (row.status === 'replied' && !isTrialMode()) throw new ConflictException('这封邮件已经回复，不再生成草稿');
 
     const { events, attachments } = await this.caseEvents(row);
     const current = attachments.get(row.id) ?? [];

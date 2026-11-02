@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { BarChart3, GraduationCap, Inbox, LogOut, Reply, Settings } from 'lucide-react';
+import { BarChart3, FlaskConical, GraduationCap, Inbox, LogOut, Reply, Settings } from 'lucide-react';
 import { ROLE_LABELS } from '@aftersell/shared';
 import { useAuth } from '@/auth';
 import { useNewVersionNotice } from '@/lib/useNewVersionNotice';
@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/replied', label: '已回复', icon: Reply, also: null },
   { to: '/analytics', label: '数据分析', icon: BarChart3, also: null },
   { to: '/learning', label: '学习与审核', icon: GraduationCap, also: null, role: 'supervisor' as const },
+  { to: '/trial', label: '试跑对比', icon: FlaskConical, also: null, role: 'supervisor' as const },
   { to: '/settings', label: '设置', icon: Settings, also: null },
 ];
 

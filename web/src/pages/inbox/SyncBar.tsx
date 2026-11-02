@@ -77,6 +77,14 @@ export default function SyncBar({ status, busy, onRun, onFiltersChanged }: Props
 
   return (
     <div className="space-y-2">
+      {status?.trialMode && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 text-right">
+          试跑模式：生产邮箱只读接入，不改邮件状态，系统不发信。
+          <Link to="/trial" className="underline ml-1">
+            去看试跑对比
+          </Link>
+        </div>
+      )}
       <div className="flex items-center justify-end gap-4 flex-wrap">
         {FILTER_SWITCHES.map((s) => {
           const checked = status?.filters?.[s.key] ?? false;

@@ -1,6 +1,6 @@
 import type { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db/db.module';
 import { emailMessage, outboundMessage } from '../db/schema';
@@ -100,6 +100,14 @@ export async function syncSentFolder(client: ImapFlow, db: Database, settings: S
           .onConflictDoNothing()
           .returning({ id: outboundMessage.id });
         inserted += rows.length;
+        // 客服在邮箱（或妙搭）里回复过的来信：移出待审核
+        const replyTo = parsed.inReplyTo?.trim().split(/s+/)[0];
+        if (rows.length && replyTo) {
+          await db
+            .update(emailMessage)
+            .set({ status: 'replied', updatedAt: new Date() })
+            .where(and(eq(emailMessage.messageId, replyTo), eq(emailMessage.status, 'pending_review')));
+        }
       }
       // 单次有上限：没处理完的部分下次从最后处理的 UID 之后继续
       if (targets.length === MAX_BODIES_PER_RUN) lastDone = targets[targets.length - 1].uid;

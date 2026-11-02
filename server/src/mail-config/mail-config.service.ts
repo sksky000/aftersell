@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import * as nodemailer from 'nodemailer';
@@ -15,6 +15,7 @@ import { DB, type Database } from '../db/db.module';
 import { emailAccount, type EmailAccountRow } from '../db/schema';
 import type { SyncFilters } from '../mail/sync-filters';
 import { checkMailEndpoints, describeMailError } from './mail-endpoint';
+import { configureTrialMode } from '../mail/trial-mode';
 
 const CONNECT_TIMEOUT_MS = 15_000;
 
@@ -35,6 +36,7 @@ export interface SyncOptions {
   intervalMinutes: number;
   syncDateFrom: string | null;
   syncDateTo: string | null;
+  trialMode: boolean;
 }
 
 type ChangeListener = (options: SyncOptions | null) => void | Promise<void>;
@@ -52,6 +54,7 @@ function syncOptionsOf(row: EmailAccountRow): SyncOptions {
     intervalMinutes: row.syncIntervalMinutes,
     syncDateFrom: row.syncDateFrom,
     syncDateTo: row.syncDateTo,
+    trialMode: row.trialMode,
   };
 }
 
@@ -72,6 +75,7 @@ function toDto(row: EmailAccountRow): MailAccountDto {
     syncIntervalMinutes: row.syncIntervalMinutes,
     syncDateFrom: row.syncDateFrom,
     syncDateTo: row.syncDateTo,
+    trialMode: row.trialMode,
     lastSyncAt: row.lastSyncAt ? row.lastSyncAt.toISOString() : null,
     hasAuthCode: row.authCodeCipher.length > 0,
     updatedAt: row.updatedAt.toISOString(),
@@ -79,7 +83,7 @@ function toDto(row: EmailAccountRow): MailAccountDto {
 }
 
 @Injectable()
-export class MailConfigService {
+export class MailConfigService implements OnModuleInit {
   private readonly logger = new Logger(MailConfigService.name);
   private readonly box = new SecretBox(env().MAIL_SECRET_KEY);
   private readonly listeners: ChangeListener[] = [];
@@ -96,7 +100,12 @@ export class MailConfigService {
     this.listeners.push(listener);
   }
 
+  async onModuleInit(): Promise<void> {
+    configureTrialMode((await this.row())?.trialMode ?? false);
+  }
+
   private async notify(row: EmailAccountRow): Promise<void> {
+    configureTrialMode(row.trialMode);
     for (const listener of this.listeners) {
       try {
         await listener(syncOptionsOf(row));
